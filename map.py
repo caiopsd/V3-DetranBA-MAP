@@ -8,6 +8,7 @@ import numpy as np
 import folium
 from streamlit_folium import st_folium
 import json
+import shapely.geometry
 
 data = openpyxl.load_workbook(
     'data/Anexo 3 - Solicitação Quantidade Serviços Prestados por Tipo BA GERAL - '
@@ -277,8 +278,33 @@ m = folium.Map(
     location=[-12.5, -41.7],
     zoom_start=7,
     tiles=None,  # Remove o mapa base
-    prefer_canvas=True
+    prefer_canvas=True,
+    zoom_control=False,  # Remove os botões de zoom
+    dragging=False,      # Desabilita o pan
+    scrollWheelZoom=False,  # Desabilita zoom com scroll
+    doubleClickZoom=False,  # Desabilita zoom com duplo clique
+    boxZoom=False,          # Desabilita zoom com caixa
+    touchZoom=False         # Desabilita zoom em dispositivos touch
 )
+# Garante que as opções estejam desabilitadas mesmo após a criação
+m.options['dragging'] = False
+m.options['scrollWheelZoom'] = False
+m.options['doubleClickZoom'] = False
+m.options['boxZoom'] = False
+m.options['touchZoom'] = False
+
+# Calcule os limites da Bahia a partir do geojson
+polys = [shapely.geometry.shape(feature['geometry']) for feature in geojson_data['features']]
+multi = shapely.geometry.MultiPolygon(polys)
+bounds = multi.bounds  # (minx, miny, maxx, maxy)
+
+# Expande o limite superior (maxy) para dar mais espaço acima
+expand = 0.8  # valor menor para deixar a Bahia maior na tela
+bounds = (bounds[0], bounds[1], bounds[2], bounds[3] + expand)
+
+# Ajusta o mapa para mostrar apenas a Bahia e restringe o pan/zoom
+m.fit_bounds([[bounds[1], bounds[0]], [bounds[3], bounds[2]]])
+m.options['maxBounds'] = [[bounds[1], bounds[0]], [bounds[3], bounds[2]]]
 
 # Add title and description
 st.title('Mapa Interativo do DETRAN-BA')

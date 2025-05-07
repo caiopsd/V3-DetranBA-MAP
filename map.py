@@ -322,11 +322,6 @@ def create_choropleth(data_df, title):
     df = data_df.copy()
     df['Id_Município'] = df['Id_Município'].astype(str)
 
-    # Depuração: mostrar estatísticas dos valores
-    print('Resumo dos valores de Total:')
-    print(df['Total'].describe())
-    print(df[['Id_Município', 'Município', 'Total']].head(10))
-
     # Remover municípios sem valor
     df = df[df['Total'] > 0]
 

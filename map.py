@@ -9,6 +9,7 @@ import folium
 from streamlit_folium import st_folium
 import json
 import shapely.geometry
+import unicodedata
 
 data = openpyxl.load_workbook(
     'data/Anexo 3 - Solicitação Quantidade Serviços Prestados por Tipo BA GERAL - '
@@ -310,15 +311,40 @@ m.options['maxBounds'] = [[bounds[1], bounds[0]], [bounds[3], bounds[2]]]
 st.title('Mapa Interativo do DETRAN-BA')
 st.write('Visualize diferentes dados do DETRAN-BA por município')
 
+# Add multi-select for municipalities
+municipios = sorted(frota_grouped['Município'].unique())
+municipios_selecionados = st.multiselect(
+    'Selecione municípios para destacar:',
+    municipios,
+    default=[]
+)
+
 # Create a selectbox for choosing the visualization
 visualization = st.selectbox(
     'Escolha o tipo de visualização:',
-    ['Frota de Veículos', 'CFCs', 'Clínicas', 'EPIVs', 'ECVs', 'Vistorias DETRAN', 'Pátios']
+    [
+        'Frota de Veículos',
+        'CFCs', 'Quantidade de CFCs',
+        'Clínicas', 'Quantidade de Clínicas',
+        'EPIVs', 'Quantidade de EPIVs',
+        'ECVs', 'Quantidade de ECVs',
+        'Vistorias DETRAN', 'Quantidade de Vistorias DETRAN',
+        'Pátios', 'Quantidade de Pátios'
+    ]
 )
+
+# Função para normalizar nomes (remover acentos e deixar minúsculo)
+def normaliza_nome(nome):
+    if not isinstance(nome, str):
+        return ''
+    return unicodedata.normalize('NFKD', nome).encode('ASCII', 'ignore').decode('ASCII').lower().strip()
 
 # Function to create choropleth map based on selected data
 def create_choropleth(data_df, title):
     # Garantir tipos corretos
+    df_original = data_df.copy()
+    df_original['Id_Município'] = df_original['Id_Município'].astype(str)
+
     df = data_df.copy()
     df['Id_Município'] = df['Id_Município'].astype(str)
 
@@ -366,7 +392,7 @@ def create_choropleth(data_df, title):
         data=df,
         columns=['Id_Município', 'Total'],
         key_on='feature.properties.id',
-        nan_fill_color='blue',
+        nan_fill_color='black',
         fill_color='YlOrRd',
         fill_opacity=0.7,
         line_opacity=0.8,
@@ -408,6 +434,69 @@ def create_choropleth(data_df, title):
         highlight_function=lambda x: {'weight': 3, 'color': 'blue'},
     ).add_to(m)
 
+    # Adicionar destaque para os municípios selecionados (apenas borda, sem tooltip)
+    if municipios_selecionados:
+        # Normalizar nomes selecionados
+        municipios_sel_norm = set([normaliza_nome(m) for m in municipios_selecionados])
+        # Mapear nome normalizado -> id do GeoJSON
+        nome2id_geojson = {normaliza_nome(f['properties']['name']): str(f['properties']['id']) for f in geojson_data['features']}
+        # Gerar lista de IDs dos municípios selecionados
+        mun_ids = [nome2id_geojson[n] for n in municipios_sel_norm if n in nome2id_geojson]
+        if mun_ids:
+            folium.GeoJson(
+                geojson_data,
+                name="Municípios Selecionados",
+                style_function=lambda x: {
+                    'fillColor': 'transparent',
+                    'color': 'red',
+                    'weight': 3,
+                    'fillOpacity': 0
+                } if str(x['properties']['id']) in mun_ids else {
+                    'fillColor': 'transparent',
+                    'color': 'transparent',
+                    'weight': 0,
+                    'fillOpacity': 0
+                },
+                # Não adicionar tooltip aqui!
+                highlight_function=lambda x: (
+                    {'weight': 4, 'color': 'red'}
+                    if str(x['properties']['id']) in mun_ids
+                    else {'weight': 0, 'color': 'transparent'}
+                ),
+                interactive=False
+            ).add_to(m)
+
+# Create dataframes for number of accredited service providers
+cfc_credenciados = cfc_df_24.groupby('Id_Município CFC').agg({
+    'Município CFC': 'first',
+    'CNPJ': 'nunique'
+}).reset_index().rename(columns={'Id_Município CFC': 'Id_Município', 'Município CFC': 'Município', 'CNPJ': 'Total'})
+
+clinicas_credenciadas = clinicas_df_24.groupby('Id_Município Clínica').agg({
+    'Município Clínica': 'first',
+    'CNPJ': 'nunique'
+}).reset_index().rename(columns={'Id_Município Clínica': 'Id_Município', 'Município Clínica': 'Município', 'CNPJ': 'Total'})
+
+epiv_credenciados = epiv_df_24.groupby('Id_Município').agg({
+    'Município': 'first',
+    'CNPJ': 'nunique'
+}).reset_index().rename(columns={'CNPJ': 'Total'})
+
+ecv_credenciados = ecv_df_24.groupby('Id_Município').agg({
+    'Município': 'first',
+    'CNPJ': 'nunique'
+}).reset_index().rename(columns={'CNPJ': 'Total'})
+
+vistoria_credenciados = vistoria_df_24.groupby('Id_Município').agg({
+    'Município': 'first',
+    'CNPJ': 'nunique'
+}).reset_index().rename(columns={'CNPJ': 'Total'})
+
+patio_credenciados = patio_df_24.groupby('Id_Município').agg({
+    'Município': 'first',
+    'CNPJ': 'nunique'
+}).reset_index().rename(columns={'CNPJ': 'Total'})
+
 # Create visualization based on selection
 if visualization == 'Frota de Veículos':
     create_choropleth(frota_grouped, 'Total de Veículos')
@@ -423,6 +512,18 @@ elif visualization == 'Vistorias DETRAN':
     create_choropleth(vistoria_grouped, 'Total de Vistorias DETRAN')
 elif visualization == 'Pátios':
     create_choropleth(patio_grouped, 'Total de Veículos Removidos')
+elif visualization == 'Quantidade de CFCs':
+    create_choropleth(cfc_credenciados, 'Número de CFCs Credenciados')
+elif visualization == 'Quantidade de Clínicas':
+    create_choropleth(clinicas_credenciadas, 'Número de Clínicas Credenciadas')
+elif visualization == 'Quantidade de EPIVs':
+    create_choropleth(epiv_credenciados, 'Número de EPIVs Credenciados')
+elif visualization == 'Quantidade de ECVs':
+    create_choropleth(ecv_credenciados, 'Número de ECVs Credenciados')
+elif visualization == 'Quantidade de Vistorias DETRAN':
+    create_choropleth(vistoria_credenciados, 'Número de Vistorias DETRAN Credenciadas')
+elif visualization == 'Quantidade de Pátios':
+    create_choropleth(patio_credenciados, 'Número de Pátios Credenciados')
 
 # Display the map
 st_folium(m, width=700, height=500)
@@ -430,13 +531,56 @@ st_folium(m, width=700, height=500)
 # Show additional statistics based on selection
 st.subheader('Estatísticas')
 if visualization == 'Frota de Veículos':
+    tipos_veiculos = [
+        'Automóvel', 'Moto', 'Caminhão', 'Caminhonete', 'Microonibus',
+        'Motor-Casa', 'Onibus', 'Reboque', 'Trator', 'Outros'
+    ]
+    totais = {tipo: frota_df_24[tipo].apply(pd.to_numeric, errors='coerce').sum() for tipo in tipos_veiculos}
+    total_geral = frota_df_24['Total'].apply(pd.to_numeric, errors='coerce').sum()
+    totais['Total Geral de Veículos'] = total_geral
+    # Ordenar por valor decrescente
+    tipos_ordenados = sorted(totais.keys(), key=lambda x: totais[x], reverse=True)
+    # Exibir em linhas de 4 colunas
+    for i in range(0, len(tipos_ordenados), 4):
+        cols = st.columns(4)
+        for j, tipo in enumerate(tipos_ordenados[i:i+4]):
+            with cols[j]:
+                if tipo == 'Total Geral de Veículos':
+                    st.metric(tipo, f"{totais[tipo]:,.0f}")
+                else:
+                    st.metric(f'Total de {tipo}', f"{totais[tipo]:,.0f}")
+elif visualization in ['Quantidade de CFCs', 'Quantidade de Clínicas', 'Quantidade de EPIVs', 
+                      'Quantidade de ECVs', 'Quantidade de Vistorias DETRAN', 'Quantidade de Pátios']:
+    selected_df = {
+        'Quantidade de CFCs': cfc_credenciados,
+        'Quantidade de Clínicas': clinicas_credenciadas,
+        'Quantidade de EPIVs': epiv_credenciados,
+        'Quantidade de ECVs': ecv_credenciados,
+        'Quantidade de Vistorias DETRAN': vistoria_credenciados,
+        'Quantidade de Pátios': patio_credenciados
+    }[visualization]
+    
+    total_cred = selected_df['Total'].sum()
+    n_mun = len(selected_df)
+    n_total_mun = len(frota_grouped)  # usa frota como base de todos os municípios
+    media_geral = total_cred / n_total_mun if n_total_mun > 0 else 0
+    media_com_cred = selected_df['Total'].mean() if n_mun > 0 else 0
+    mediana = selected_df['Total'].median() if n_mun > 0 else 0
+    maximo = selected_df['Total'].max() if n_mun > 0 else 0
+    minimo = selected_df['Total'].min() if n_mun > 0 else 0
+    desvio = selected_df['Total'].std() if n_mun > 0 else 0
+
     col1, col2, col3 = st.columns(3)
     with col1:
-        st.metric('Total de Veículos', f"{frota_df_24['Total'].sum():,.0f}")
+        st.metric('Total de Credenciados', f"{total_cred:,.0f}")
+        st.metric('Média Geral', f"{media_geral:,.2f}")
     with col2:
-        st.metric('Total de Motos', f"{frota_df_24['Moto'].sum():,.0f}")
+        st.metric('Municípios com Credenciados', f"{n_mun:,.0f}")
+        st.metric('Média c/ Credenciados', f"{media_com_cred:,.2f}")
     with col3:
-        st.metric('Total de Automóveis', f"{frota_df_24['Automóvel'].sum():,.0f}")
+        st.metric('Mediana', f"{mediana:,.0f}")
+        st.metric('Máx / Mín', f"{maximo:,.0f} / {minimo:,.0f}")
+        st.metric('Desvio Padrão', f"{desvio:,.2f}")
 else:
     selected_df = {
         'CFCs': cfc_grouped,
@@ -447,8 +591,24 @@ else:
         'Pátios': patio_grouped
     }[visualization]
     
-    col1, col2 = st.columns(2)
+    total_serv = selected_df['Total'].sum()
+    n_mun = len(selected_df)
+    n_total_mun = len(frota_grouped)  # usa frota como base de todos os municípios
+    media_geral = total_serv / n_total_mun if n_total_mun > 0 else 0
+    media_com_serv = selected_df['Total'].mean() if n_mun > 0 else 0
+    mediana = selected_df['Total'].median() if n_mun > 0 else 0
+    maximo = selected_df['Total'].max() if n_mun > 0 else 0
+    minimo = selected_df['Total'].min() if n_mun > 0 else 0
+    desvio = selected_df['Total'].std() if n_mun > 0 else 0
+
+    col1, col2, col3 = st.columns(3)
     with col1:
-        st.metric('Total de Serviços', f"{selected_df['Total'].sum():,.0f}")
+        st.metric('Total de Serviços', f"{total_serv:,.0f}")
+        st.metric('Média Geral', f"{media_geral:,.2f}")
     with col2:
-        st.metric('Número de Municípios', f"{len(selected_df):,.0f}")
+        st.metric('Municípios com Serviços', f"{n_mun:,.0f}")
+        st.metric('Média c/ Serviços', f"{media_com_serv:,.2f}")
+    with col3:
+        st.metric('Mediana', f"{mediana:,.0f}")
+        st.metric('Máx / Mín', f"{maximo:,.0f} / {minimo:,.0f}")
+        st.metric('Desvio Padrão', f"{desvio:,.2f}")

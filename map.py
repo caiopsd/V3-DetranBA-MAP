@@ -311,6 +311,10 @@ m.options['maxBounds'] = [[bounds[1], bounds[0]], [bounds[3], bounds[2]]]
 st.title('Mapa Interativo do DETRAN-BA')
 st.write('Visualize diferentes dados do DETRAN-BA por município')
 
+# Carregar dados dos CSVs de credenciados
+credenciados_cfc_df = pd.read_csv('data/CredenciadosCFC.csv', header=None, names=['Nome', 'Município'])
+credenciados_clinica_df = pd.read_csv('data/CredenciadosClinica.csv', header=None, names=['Nome', 'Município'])
+
 # Add multi-select for municipalities
 municipios = sorted(frota_grouped['Município'].unique())
 municipios_selecionados = st.multiselect(
@@ -333,6 +337,25 @@ visualization = st.selectbox(
     ]
 )
 
+# Adicionar seleção de credenciados para visualizações específicas
+credenciado_selecionado = None
+if visualization == 'Quantidade de CFCs':
+    credenciado_selecionado = st.selectbox(
+        'Selecione um CFC credenciado (opcional):',
+        ['Todos os CFCs'] + list(credenciados_cfc_df['Nome'].drop_duplicates().sort_values())
+    )
+    if credenciado_selecionado != 'Todos os CFCs':
+        municipios_do_credenciado = credenciados_cfc_df[credenciados_cfc_df['Nome'] == credenciado_selecionado]['Município'].tolist()
+        municipios_selecionados = municipios_do_credenciado
+elif visualization == 'Quantidade de Clínicas':
+    credenciado_selecionado = st.selectbox(
+        'Selecione uma Clínica credenciada (opcional):',
+        ['Todas as Clínicas'] + list(credenciados_clinica_df['Nome'].drop_duplicates().sort_values())
+    )
+    if credenciado_selecionado != 'Todas as Clínicas':
+        municipios_do_credenciado = credenciados_clinica_df[credenciados_clinica_df['Nome'] == credenciado_selecionado]['Município'].tolist()
+        municipios_selecionados = municipios_do_credenciado
+
 # Função para normalizar nomes (remover acentos e deixar minúsculo)
 def normaliza_nome(nome):
     if not isinstance(nome, str):
@@ -347,6 +370,13 @@ def create_choropleth(data_df, title):
 
     df = data_df.copy()
     df['Id_Município'] = df['Id_Município'].astype(str)
+
+    # Se um credenciado foi selecionado e estamos em uma visualização de quantidade
+    if credenciado_selecionado and credenciado_selecionado not in ['Todos os CFCs', 'Todas as Clínicas']:
+        # Normalizar os nomes dos municípios do credenciado
+        municipios_credenciado = [normaliza_nome(m) for m in municipios_do_credenciado]
+        # Filtrar o dataframe para mostrar apenas os municípios do credenciado
+        df = df[df['Município'].apply(normaliza_nome).isin(municipios_credenciado)]
 
     # Remover municípios sem valor
     df = df[df['Total'] > 0]

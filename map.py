@@ -6,10 +6,12 @@ import streamlit as st
 import geopandas as gpd
 import numpy as np
 import folium
-from streamlit_folium import st_folium
+import streamlit.components.v1 as components
 import json
 import shapely.geometry
 import unicodedata
+
+st.set_page_config(layout="wide")
 
 data = openpyxl.load_workbook(
     'data/Anexo 3 - Solicitação Quantidade Serviços Prestados por Tipo BA GERAL - '
@@ -277,39 +279,51 @@ with open('data/geo-ba.json', 'r', encoding='utf-8') as f:
 # Create the base map centered on Bahia
 m = folium.Map(
     location=[-12.5, -41.7],
-    zoom_start=7,
-    tiles=None,  # Remove o mapa base
+    zoom_start=6,  # Reduzindo o zoom para mostrar mais área
+    tiles='CartoDB positron',  # Mapa base mais claro
     prefer_canvas=True,
-    zoom_control=False,  # Remove os botões de zoom
-    dragging=False,      # Desabilita o pan
-    scrollWheelZoom=False,  # Desabilita zoom com scroll
-    doubleClickZoom=False,  # Desabilita zoom com duplo clique
-    boxZoom=False,          # Desabilita zoom com caixa
-    touchZoom=False         # Desabilita zoom em dispositivos touch
+    zoom_control=True,  # Adiciona controles de zoom
+    dragging=True,      # Permite arrastar o mapa
+    scrollWheelZoom=True,  # Permite zoom com scroll
+    doubleClickZoom=True,  # Permite zoom com duplo clique
+    boxZoom=True,          # Permite zoom com caixa
+    touchZoom=True,        # Permite zoom em dispositivos touch
+    height=1200
 )
-# Garante que as opções estejam desabilitadas mesmo após a criação
-m.options['dragging'] = False
-m.options['scrollWheelZoom'] = False
-m.options['doubleClickZoom'] = False
-m.options['boxZoom'] = False
-m.options['touchZoom'] = False
 
 # Calcule os limites da Bahia a partir do geojson
 polys = [shapely.geometry.shape(feature['geometry']) for feature in geojson_data['features']]
 multi = shapely.geometry.MultiPolygon(polys)
 bounds = multi.bounds  # (minx, miny, maxx, maxy)
 
-# Expande o limite superior (maxy) para dar mais espaço acima
-expand = 0.8  # valor menor para deixar a Bahia maior na tela
-bounds = (bounds[0], bounds[1], bounds[2], bounds[3] + expand)
+# Adicione uma pequena margem para melhor visualização
+margin = 0.3
+bounds = (bounds[0] - margin, bounds[1] - margin, bounds[2] + margin, bounds[3] + margin)
 
-# Ajusta o mapa para mostrar apenas a Bahia e restringe o pan/zoom
+# Ajusta o mapa para mostrar a Bahia
 m.fit_bounds([[bounds[1], bounds[0]], [bounds[3], bounds[2]]])
-m.options['maxBounds'] = [[bounds[1], bounds[0]], [bounds[3], bounds[2]]]
+
+# Calcule a proporção do shape da Bahia
+aspect_ratio = (bounds[2] - bounds[0]) / (bounds[3] - bounds[1])
+iframe_width = 2000
+iframe_height = 1200
 
 # Add title and description
 st.title('Mapa Interativo do DETRAN-BA')
 st.write('Visualize diferentes dados do DETRAN-BA por município')
+
+# Configurar o layout para ocupar toda a largura disponível
+st.markdown("""
+<style>
+    .reportview-container .main .block-container {
+        max-width: 1200px;
+        padding-top: 2rem;
+        padding-right: 2rem;
+        padding-left: 2rem;
+        padding-bottom: 2rem;
+    }
+</style>
+""", unsafe_allow_html=True)
 
 # Carregar dados dos CSVs de credenciados
 credenciados_cfc_df = pd.read_csv('data/CredenciadosCFC.csv', header=None, names=['Nome', 'Município'])
@@ -317,6 +331,8 @@ credenciados_clinica_df = pd.read_csv('data/CredenciadosClinica.csv', header=Non
 
 # Add multi-select for municipalities
 municipios = sorted(frota_grouped['Município'].unique())
+# Corrigir o nome do município Dias d'Ávila
+municipios = [m.replace('DIAS D AVILA', "DIAS D'AVILA") if m == 'DIAS D AVILA' else m for m in municipios]
 municipios_selecionados = st.multiselect(
     'Selecione municípios para destacar:',
     municipios,
@@ -360,6 +376,9 @@ elif visualization == 'Quantidade de Clínicas':
 def normaliza_nome(nome):
     if not isinstance(nome, str):
         return ''
+    # Tratamento especial para Dias d'Ávila
+    if 'DIAS D AVILA' in nome.upper():
+        return unicodedata.normalize('NFKD', nome.replace('DIAS D AVILA', "DIAS D'AVILA")).encode('ASCII', 'ignore').decode('ASCII').lower().strip()
     return unicodedata.normalize('NFKD', nome).encode('ASCII', 'ignore').decode('ASCII').lower().strip()
 
 # Function to create choropleth map based on selected data
@@ -556,7 +575,76 @@ elif visualization == 'Quantidade de Pátios':
     create_choropleth(patio_credenciados, 'Número de Pátios Credenciados')
 
 # Display the map
-st_folium(m, width=700, height=500)
+map_html = m._repr_html_()
+components.html(map_html, width=iframe_width, height=iframe_height, scrolling=False)
+st.markdown(
+    '''
+    <style>
+    iframe {
+        height: 1200px !important;
+        width: 100% !important;
+        max-width: none !important;
+        padding: 20px !important;
+        box-sizing: border-box !important;
+        overflow: hidden !important;
+    }
+    .folium-map {
+        height: 100% !important;
+        width: 100% !important;
+        margin: 0 !important;
+        padding: 0 !important;
+        overflow: hidden !important;
+    }
+    .leaflet-container {
+        height: 100% !important;
+        width: 100% !important;
+        overflow: hidden !important;
+    }
+    .stApp {
+        max-width: 100% !important;
+        padding: 20px !important;
+        overflow-x: hidden !important;
+    }
+    .block-container {
+        max-width: 95% !important;
+        margin: 0 auto !important;
+        padding-left: 2.5% !important;
+        padding-right: 2.5% !important;
+        padding-top: 60px !important;
+        padding-bottom: 20px !important;
+        overflow-x: hidden !important;
+    }
+    div[data-testid="stVerticalBlock"] {
+        padding-left: 10px !important;
+        padding-right: 10px !important;
+        overflow-x: hidden !important;
+    }
+    div.stTitle {
+        margin-top: 20px !important;
+        padding-top: 20px !important;
+    }
+    h1 {
+        padding-top: 20px !important;
+        margin-top: 20px !important;
+    }
+    /* Remover barras de rolagem */
+    ::-webkit-scrollbar {
+        display: none !important;
+    }
+    html {
+        overflow-x: hidden !important;
+        max-width: 100% !important;
+        width: 100% !important;
+    }
+    body {
+        overflow-x: hidden !important;
+        max-width: 100% !important;
+        width: 100% !important;
+    }
+    </style>
+    ''',
+    unsafe_allow_html=True
+)
 
 # Show additional statistics based on selection
 st.subheader('Estatísticas')

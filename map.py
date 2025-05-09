@@ -423,16 +423,178 @@ def create_choropleth(data_df, title):
     # Preparar dicionário de dados para acesso rápido
     info_dict = df.set_index('Id_Município').to_dict(orient='index')
 
-    # Função para buscar info do município
+    # Função para criar conteúdo detalhado do popup com base no tipo de visualização
     def get_popup_html(feature):
         mun_id = str(feature['properties']['id'])
+        municipio_nome = feature['properties']['name']
         info = info_dict.get(mun_id)
-        if info:
-            html = f"<b>{info['Município']}</b><br>"
-            html += f"Total: {info['Total']:,.0f}"
-            return html
-        else:
-            return "Sem dados"
+        
+        if not info:
+            return f"""<div style='min-width:300px'>
+                <h4 style='background-color:#f8f9fa; padding:8px; margin:0; border-radius:4px 4px 0 0; border-bottom:1px solid #dee2e6;'>{municipio_nome}</h4>
+                <div style='padding:10px;'><p>Sem dados disponíveis</p></div>
+            </div>"""
+        
+        html = f"""<div style='min-width:300px; max-width:400px; border-radius:4px; box-shadow:0 1px 5px rgba(0,0,0,0.2);'>
+            <h4 style='background-color:#f8f9fa; color:#212529; padding:10px; margin:0; border-bottom:1px solid #dee2e6; border-radius:4px 4px 0 0;'>{info['Município']}</h4>
+            <div style='padding:15px; max-height:500px; overflow-y:auto;'>"""
+        
+        # Conteúdo específico com base na visualização selecionada
+        if visualization == 'Frota de Veículos':
+            html += f"<p style='font-weight:500; margin-bottom:10px;'><b>Total de veículos:</b> {info['Total']:,.0f}</p>"
+            html += "<table style='width:100%; border-collapse:collapse; margin-top:10px; border:1px solid #dee2e6;'>"
+            html += "<tr style='background-color:#f8f9fa;'><th style='text-align:left; padding:8px; border:1px solid #dee2e6;'>Tipo</th><th style='text-align:right; padding:8px; border:1px solid #dee2e6;'>Quantidade</th></tr>"
+            for tipo in ['Automóvel', 'Moto', 'Caminhão', 'Caminhonete', 'Microonibus', 'Onibus', 'Reboque', 'Outros']:
+                if tipo in info and info[tipo] > 0:
+                    html += f"<tr><td style='padding:8px; border:1px solid #dee2e6;'>{tipo}</td><td style='text-align:right; padding:8px; border:1px solid #dee2e6;'>{info[tipo]:,.0f}</td></tr>"
+            html += "</table>"
+            
+        elif visualization == 'CFCs':
+            html += f"<p style='font-weight:500; margin-bottom:10px;'><b>Total de serviços:</b> {info['Total']:,.0f}</p>"
+            if 'Cursos Teóricos' in info and 'Cursos Práticos' in info:
+                html += "<table style='width:100%; border-collapse:collapse; margin-top:10px; border:1px solid #dee2e6;'>"
+                html += "<tr style='background-color:#f8f9fa;'><th style='text-align:left; padding:8px; border:1px solid #dee2e6;'>Tipo</th><th style='text-align:right; padding:8px; border:1px solid #dee2e6;'>Quantidade</th></tr>"
+                html += f"<tr><td style='padding:8px; border:1px solid #dee2e6;'>Cursos Teóricos</td><td style='text-align:right; padding:8px; border:1px solid #dee2e6;'>{info['Cursos Teóricos']:,.0f}</td></tr>"
+                html += f"<tr><td style='padding:8px; border:1px solid #dee2e6;'>Cursos Práticos</td><td style='text-align:right; padding:8px; border:1px solid #dee2e6;'>{info['Cursos Práticos']:,.0f}</td></tr>"
+                html += "</table>"
+            
+            # Adicionar lista de CFCs
+            municipio_norm = normaliza_nome(info['Município'])
+            cfcs_no_municipio = cfc_df_24[cfc_df_24['Município CFC'].apply(normaliza_nome) == municipio_norm].drop_duplicates('CNPJ')
+            if not cfcs_no_municipio.empty:
+                html += f"<div style='margin-top:15px;'>"
+                html += f"<h5 style='margin-bottom:8px; padding-bottom:5px; border-bottom:1px solid #dee2e6;'>CFCs no município ({len(cfcs_no_municipio)})</h5>"
+                html += "<div style='max-height:200px; overflow-y:auto; border:1px solid #dee2e6; border-radius:4px; padding:5px;'>"
+                html += "<ul style='padding-left:20px; margin:5px 0;'>"
+                for _, cfc in cfcs_no_municipio.iterrows():
+                    html += f"<li style='padding:3px 0;'>{cfc['Razão Social']}</li>"
+                html += "</ul></div></div>"
+                
+        elif visualization == 'Clínicas':
+            html += f"<p style='font-weight:500; margin-bottom:10px;'><b>Total de exames:</b> {info['Total']:,.0f}</p>"
+            if 'Exames Médicos' in info and 'Exames Psicológicos' in info:
+                html += "<table style='width:100%; border-collapse:collapse; margin-top:10px; border:1px solid #dee2e6;'>"
+                html += "<tr style='background-color:#f8f9fa;'><th style='text-align:left; padding:8px; border:1px solid #dee2e6;'>Tipo</th><th style='text-align:right; padding:8px; border:1px solid #dee2e6;'>Quantidade</th></tr>"
+                html += f"<tr><td style='padding:8px; border:1px solid #dee2e6;'>Exames Médicos</td><td style='text-align:right; padding:8px; border:1px solid #dee2e6;'>{info['Exames Médicos']:,.0f}</td></tr>"
+                html += f"<tr><td style='padding:8px; border:1px solid #dee2e6;'>Exames Psicológicos</td><td style='text-align:right; padding:8px; border:1px solid #dee2e6;'>{info['Exames Psicológicos']:,.0f}</td></tr>"
+                html += "</table>"
+            
+            # Adicionar lista de Clínicas
+            municipio_norm = normaliza_nome(info['Município'])
+            clinicas_no_municipio = clinicas_df_24[clinicas_df_24['Município Clínica'].apply(normaliza_nome) == municipio_norm].drop_duplicates('CNPJ')
+            if not clinicas_no_municipio.empty:
+                html += f"<div style='margin-top:15px;'>"
+                html += f"<h5 style='margin-bottom:8px; padding-bottom:5px; border-bottom:1px solid #dee2e6;'>Clínicas no município ({len(clinicas_no_municipio)})</h5>"
+                html += "<div style='max-height:200px; overflow-y:auto; border:1px solid #dee2e6; border-radius:4px; padding:5px;'>"
+                html += "<ul style='padding-left:20px; margin:5px 0;'>"
+                for _, clinica in clinicas_no_municipio.iterrows():
+                    html += f"<li style='padding:3px 0;'>{clinica['Razão Social']}</li>"
+                html += "</ul></div></div>"
+                
+        elif visualization == 'EPIVs':
+            html += f"<p style='font-weight:500; margin-bottom:10px;'><b>Total de estampagens:</b> {info['Total']:,.0f}</p>"
+            if 'Estampagem' in info:
+                html += f"<p>Serviços de estampagem: {info['Estampagem']:,.0f}</p>"
+            
+            # Adicionar lista de EPIVs
+            municipio_norm = normaliza_nome(info['Município'])
+            epivs_no_municipio = epiv_df_24[epiv_df_24['Município'].apply(normaliza_nome) == municipio_norm].drop_duplicates('CNPJ')
+            if not epivs_no_municipio.empty:
+                html += f"<div style='margin-top:15px;'>"
+                html += f"<h5 style='margin-bottom:8px; padding-bottom:5px; border-bottom:1px solid #dee2e6;'>EPIVs no município ({len(epivs_no_municipio)})</h5>"
+                html += "<div style='max-height:200px; overflow-y:auto; border:1px solid #dee2e6; border-radius:4px; padding:5px;'>"
+                html += "<ul style='padding-left:20px; margin:5px 0;'>"
+                for _, epiv in epivs_no_municipio.iterrows():
+                    html += f"<li style='padding:3px 0;'>{epiv['Razão Social']}</li>"
+                html += "</ul></div></div>"
+                
+        elif visualization in ['ECVs', 'Vistorias DETRAN']:
+            html += f"<p style='font-weight:500; margin-bottom:10px;'><b>Total de vistorias:</b> {info['Total']:,.0f}</p>"
+            
+            # Selecionar as colunas principais para exibição
+            colunas_vistoria = [
+                'Vistoria Lacrada Veículo 4 Rodas Até 16 Lugares ou Maior 3,5T',
+                'Vistoria Lacrada Veículo 2 ou 3 Rodas',
+                'Vistoria RENAVE de Veículo 4 Rodas 16 Lugares ou Até 3,5 Ton',
+                'Vistoria RENAVE de Veículos de 2 e 3 Rodas',
+                'Vistoria Veículo 2 ou 3 Rodas',
+                'Vistoria Veículo 4 Rodas Até 16 Lugares ou Até 3,5 Ton'
+            ]
+            
+            # Criar tabela com as principais vistorias
+            html += "<table style='width:100%; border-collapse:collapse; margin-top:10px; border:1px solid #dee2e6;'>"
+            html += "<tr style='background-color:#f8f9fa;'><th style='text-align:left; padding:8px; border:1px solid #dee2e6;'>Tipo de Vistoria</th><th style='text-align:right; padding:8px; border:1px solid #dee2e6;'>Quantidade</th></tr>"
+            
+            for col in colunas_vistoria:
+                if col in info and info[col] > 0:
+                    # Nome simplificado para a tabela
+                    nome_curto = col.replace('Vistoria ', '').replace('Veículo ', '')
+                    if len(nome_curto) > 30:
+                        nome_curto = nome_curto[:27] + '...'
+                    html += f"<tr><td style='padding:8px; border:1px solid #dee2e6;'>{nome_curto}</td><td style='text-align:right; padding:8px; border:1px solid #dee2e6;'>{info[col]:,.0f}</td></tr>"
+            html += "</table>"
+            
+            # Adicionar lista de ECVs ou Vistorias DETRAN
+            if visualization == 'ECVs':
+                municipio_norm = normaliza_nome(info['Município'])
+                ecvs_no_municipio = ecv_df_24[ecv_df_24['Município'].apply(normaliza_nome) == municipio_norm].drop_duplicates('CNPJ')
+                if not ecvs_no_municipio.empty:
+                    html += f"<div style='margin-top:15px;'>"
+                    html += f"<h5 style='margin-bottom:8px; padding-bottom:5px; border-bottom:1px solid #dee2e6;'>ECVs no município ({len(ecvs_no_municipio)})</h5>"
+                    html += "<div style='max-height:200px; overflow-y:auto; border:1px solid #dee2e6; border-radius:4px; padding:5px;'>"
+                    html += "<ul style='padding-left:20px; margin:5px 0;'>"
+                    for _, ecv in ecvs_no_municipio.iterrows():
+                        html += f"<li style='padding:3px 0;'>{ecv['Razão Social']}</li>"
+                    html += "</ul></div></div>"
+                    
+        elif visualization == 'Pátios':
+            html += f"<p style='font-weight:500; margin-bottom:10px;'><b>Total de veículos removidos:</b> {info['Total']:,.0f}</p>"
+            if 'Veículos removidos' in info:
+                html += f"<p>Serviços de remoção: {info['Veículos removidos']:,.0f}</p>"
+            
+            # Adicionar lista de Pátios
+            municipio_norm = normaliza_nome(info['Município'])
+            patios_no_municipio = patio_df_24[patio_df_24['Município'].apply(normaliza_nome) == municipio_norm].drop_duplicates('CNPJ')
+            if not patios_no_municipio.empty:
+                html += f"<div style='margin-top:15px;'>"
+                html += f"<h5 style='margin-bottom:8px; padding-bottom:5px; border-bottom:1px solid #dee2e6;'>Pátios no município ({len(patios_no_municipio)})</h5>"
+                html += "<div style='max-height:200px; overflow-y:auto; border:1px solid #dee2e6; border-radius:4px; padding:5px;'>"
+                html += "<ul style='padding-left:20px; margin:5px 0;'>"
+                for _, patio in patios_no_municipio.iterrows():
+                    html += f"<li style='padding:3px 0;'>{patio['Razão Social']}</li>"
+                html += "</ul></div></div>"
+                
+        # Visualizações de quantidade de credenciados
+        elif 'Quantidade de' in visualization:
+            tipo_credenciado = visualization.replace('Quantidade de ', '')
+            html += f"<p style='font-weight:500; margin-bottom:10px;'><b>Total de {tipo_credenciado}:</b> {info['Total']:,.0f}</p>"
+            
+            # Adicionar lista de credenciados específica para cada tipo
+            if tipo_credenciado == 'CFCs':
+                municipio_norm = normaliza_nome(info['Município'])
+                cfcs_no_municipio = cfc_df_24[cfc_df_24['Município CFC'].apply(normaliza_nome) == municipio_norm].drop_duplicates('CNPJ')
+                if not cfcs_no_municipio.empty:
+                    html += f"<div style='margin-top:15px;'>"
+                    html += f"<h5 style='margin-bottom:8px; padding-bottom:5px; border-bottom:1px solid #dee2e6;'>Lista de CFCs</h5>"
+                    html += "<div style='max-height:300px; overflow-y:auto; border:1px solid #dee2e6; border-radius:4px; padding:5px;'>"
+                    html += "<ul style='padding-left:20px; margin:5px 0;'>"
+                    for _, cfc in cfcs_no_municipio.iterrows():
+                        html += f"<li style='padding:3px 0;'>{cfc['Razão Social']}</li>"
+                    html += "</ul></div></div>"
+            elif tipo_credenciado == 'Clínicas':
+                municipio_norm = normaliza_nome(info['Município'])
+                clinicas_no_municipio = clinicas_df_24[clinicas_df_24['Município Clínica'].apply(normaliza_nome) == municipio_norm].drop_duplicates('CNPJ')
+                if not clinicas_no_municipio.empty:
+                    html += f"<div style='margin-top:15px;'>"
+                    html += f"<h5 style='margin-bottom:8px; padding-bottom:5px; border-bottom:1px solid #dee2e6;'>Lista de Clínicas</h5>"
+                    html += "<div style='max-height:300px; overflow-y:auto; border:1px solid #dee2e6; border-radius:4px; padding:5px;'>"
+                    html += "<ul style='padding-left:20px; margin:5px 0;'>"
+                    for _, clinica in clinicas_no_municipio.iterrows():
+                        html += f"<li style='padding:3px 0;'>{clinica['Razão Social']}</li>"
+                    html += "</ul></div></div>"
+            
+        html += "</div></div>"
+        return html
 
     # Choropleth com bins definidos e cor visível (para legenda e coloração)
     folium.Choropleth(
@@ -451,16 +613,22 @@ def create_choropleth(data_df, title):
         highlight=True
     ).add_to(m)
 
-    # Adicionar propriedade 'valor' ao geojson para tooltip
+    # Adicionar propriedade 'valor' e html_popup ao geojson para uso no tooltip e popup
     for feature in geojson_data['features']:
         mun_id = str(feature['properties']['id'])
         info = info_dict.get(mun_id)
         if info:
             feature['properties']['valor'] = info['Total']
+            # Pré-renderizar o HTML do popup e armazenar como propriedade
+            feature['properties']['html_popup'] = get_popup_html(feature)
         else:
             feature['properties']['valor'] = 'Sem dados'
+            feature['properties']['html_popup'] = f"""<div style='min-width:300px'>
+                <h4 style='background-color:#f8f9fa; padding:8px; margin:0; border-radius:4px 4px 0 0; border-bottom:1px solid #dee2e6;'>{feature['properties']['name']}</h4>
+                <div style='padding:10px;'><p>Sem dados disponíveis</p></div>
+            </div>"""
 
-    # Tooltip customizado: nome do município e valor do serviço/frota
+    # Tooltip customizado e popup
     folium.GeoJson(
         geojson_data,
         name=title + " Tooltip",
@@ -479,6 +647,14 @@ def create_choropleth(data_df, title):
             localize=True,
             parse_html=True,
             max_width=300,
+        ),
+        popup=folium.GeoJsonPopup(
+            fields=['html_popup'],
+            aliases=[''],
+            labels=False,
+            style=("background-color: white; color: #333; font-size: 12px;"),
+            parse_html=True,
+            max_width=350
         ),
         highlight_function=lambda x: {'weight': 3, 'color': 'blue'},
     ).add_to(m)

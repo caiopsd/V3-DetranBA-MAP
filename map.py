@@ -13,6 +13,427 @@ import unicodedata
 
 st.set_page_config(layout="wide")
 
+# Definição das regiões da Bahia
+regioes_ba = {
+    'Centro-Norte': [   'AMÉRICA DOURADA',
+                        'ANDORINHA',
+                        'ANGUERA',
+                        'ANTÔNIO CARDOSO',
+                        'ANTÔNIO GONÇALVES',
+                        'BAIXA GRANDE',
+                        'BARRA DO MENDES',
+                        'BARRO ALTO',
+                        'BOA VISTA DO TUPIM',
+                        'CAFARNAUM',
+                        'CALDEIRÃO GRANDE',
+                        'CAMPO FORMOSO',
+                        'CANARANA',
+                        'CAPIM GROSSO',
+                        'CAÉM',
+                        'CENTRAL',
+                        'CONCEIÇÃO DA FEIRA',
+                        'CONCEIÇÃO DO JACUÍPE',
+                        'CORAÇÃO DE MARIA',
+                        'ELÍSIO MEDRADO',
+                        'FEIRA DE SANTANA',
+                        'FILADÉLFIA',
+                        'GENTIO DO OURO',
+                        'IAÇU',
+                        'IBIPEBA',
+                        'IBIQUERA',
+                        'IBITITÁ',
+                        'IPECAETÁ',
+                        'IPIRÁ',
+                        'IRAQUARA',
+                        'IRARÁ',
+                        'IRECÊ',
+                        'ITABERABA',
+                        'ITATIM',
+                        'ITIÚBA',
+                        'JACOBINA',
+                        'JAGUARARI',
+                        'JOÃO DOURADO',
+                        'JUSSARA',
+                        'LAJEDINHO',
+                        'LAPÃO',
+                        'MACAJUBA',
+                        'MAIRI',
+                        'MIGUEL CALMON',
+                        'MIRANGABA',
+                        'MORRO DO CHAPÉU',
+                        'MULUNGU DO MORRO',
+                        'MUNDO NOVO',
+                        'OURIÇANGAS',
+                        'OUROLÂNDIA',
+                        'PEDRÃO',
+                        'PINDOBAÇU',
+                        'PINTADAS',
+                        'PIRITIBA',
+                        'PONTO NOVO',
+                        'PRESIDENTE DUTRA',
+                        'QUIXABEIRA',
+                        'RAFAEL JAMBEIRO',
+                        'RUY BARBOSA',
+                        'SANTA BÁRBARA',
+                        'SANTA TERESINHA',
+                        'SANTANÓPOLIS',
+                        'SANTO ESTÊVÃO',
+                        'SAÚDE',
+                        'SENHOR DO BONFIM',
+                        'SERRA PRETA',
+                        'SERROLÂNDIA',
+                        'SOUTO SOARES',
+                        'SÃO GABRIEL',
+                        'SÃO GONÇALO DOS CAMPOS',
+                        'SÃO JOSÉ DO JACUÍPE',
+                        'TANQUINHO',
+                        'TAPIRAMUTÁ',
+                        'TEODORO SAMPAIO',
+                        'UIBAÍ',
+                        'UMBURANAS',
+                        'VÁRZEA DA ROÇA',
+                        'VÁRZEA DO POÇO',
+                        'VÁRZEA NOVA',
+                        'ÁGUA FRIA'],
+    'Centro-Sul': [   'ABAÍRA',
+                      'AIQUARA',
+                      'AMARGOSA',
+                      'ANAGÉ',
+                      'ANDARAÍ',
+                      'APUAREMA',
+                      'ARACATU',
+                      'BARRA DA ESTIVA',
+                      'BARRA DO CHOÇA',
+                      'BELO CAMPO',
+                      'BOA NOVA',
+                      'BOM JESUS DA SERRA',
+                      'BONINAL',
+                      'BONITO',
+                      'BOQUIRA',
+                      'BOTUPORÃ',
+                      'BREJÕES',
+                      'BROTAS DE MACAÚBAS',
+                      'BRUMADO',
+                      'CAATIBA',
+                      'CACULÉ',
+                      'CAETANOS',
+                      'CAETITÉ',
+                      'CANDIBA',
+                      'CARAÍBAS',
+                      'CATURAMA',
+                      'CONDEÚBA',
+                      'CONTENDAS DO SINCORÁ',
+                      'CORDEIROS',
+                      'CRAVOLÂNDIA',
+                      'CÂNDIDO SALES',
+                      'DOM BASÍLIO',
+                      'DÁRIO MEIRA',
+                      'ENCRUZILHADA',
+                      'GUAJERU',
+                      'GUANAMBI',
+                      'IBIASSUCÊ',
+                      'IBICOARA',
+                      'IBICUÍ',
+                      'IBIPITANGA',
+                      'IBITIARA',
+                      'IGAPORÃ',
+                      'IGUAÍ',
+                      'IPUPIARA',
+                      'IRAJUBA',
+                      'IRAMAIA',
+                      'ITAETÉ',
+                      'ITAGI',
+                      'ITAMBÉ',
+                      'ITAPETINGA',
+                      'ITAQUARA',
+                      'ITARANTIM',
+                      'ITIRUÇU',
+                      'ITORORÓ',
+                      'ITUAÇU',
+                      'IUIÚ',
+                      'JACARACI',
+                      'JAGUAQUARA',
+                      'JEQUIÉ',
+                      'JIQUIRIÇÁ',
+                      'JITAÚNA',
+                      'JUSSIAPE',
+                      'LAFAIETE COUTINHO',
+                      'LAJEDO DO TABOCAL',
+                      'LAGOA REAL',
+                      'LAJE',
+                      'LENÇÓIS',
+                      'LICÍNIO DE ALMEIDA',
+                      'LIVRAMENTO DE NOSSA SENHORA',
+                      'MACARANI',
+                      'MACAÚBAS',
+                      'MAETINGA',
+                      'MAIQUINIQUE',
+                      'MALHADA',
+                      'MALHADA DE PEDRAS',
+                      'MANOEL VITORINO',
+                      'MARACÁS',
+                      'MARCIONÍLIO SOUZA',
+                      'MATINA',
+                      'MILAGRES',
+                      'MIRANTE',
+                      'MORTUGABA',
+                      'MUCUGÊ',
+                      'MUTUÍPE',
+                      'NOVA CANAÃ',
+                      'NOVA ITARANA',
+                      'NOVA REDENÇÃO',
+                      'NOVO HORIZONTE',
+                      'OLIVEIRA DOS BREJINHOS',
+                      'PALMAS DE MONTE ALTO',
+                      'PALMEIRAS',
+                      'PARAMIRIM',
+                      'PIATÃ',
+                      'PINDAÍ',
+                      'PIRIPÁ',
+                      'PLANALTINO',
+                      'PLANALTO',
+                      'POTIRAGUÁ',
+                      'POÇÕES',
+                      'PRESIDENTE JÂNIO QUADROS',
+                      'RIACHO DE SANTANA',
+                      'RIBEIRÃO DO LARGO',
+                      'RIO DE CONTAS',
+                      'RIO DO ANTÔNIO',
+                      'RIO DO PIRES',
+                      'SANTA INÊS',
+                      'SEABRA',
+                      'SEBASTIÃO LARANJEIRAS',
+                      'SÃO MIGUEL DAS MATAS',
+                      'TANHAÇU',
+                      'TANQUE NOVO',
+                      'TREMEDAL',
+                      'UBAÍRA',
+                      'URANDI',
+                      'UTINGA',
+                      'VITÓRIA DA CONQUISTA',
+                      'WAGNER',
+                      'ÉRICO CARDOSO'],
+    'Extremo oeste': [   'ANGICAL',
+                         'BAIANÓPOLIS',
+                         'BARREIRAS',
+                         'BREJOLÂNDIA',
+                         'CANÁPOLIS',
+                         'CATOLÂNDIA',
+                         'COCOS',
+                         'CORIBE',
+                         'CORRENTINA',
+                         'COTEGIPE',
+                         'CRISTÓPOLIS',
+                         'FORMOSA DO RIO PRETO',
+                         'JABORANDI',
+                         'LUÍS EDUARDO MAGALHÃES',
+                         'MANSIDÃO',
+                         'RIACHÃO DAS NEVES',
+                         'SANTA MARIA DA VITÓRIA',
+                         'SANTA RITA DE CÁSSIA',
+                         'SANTANA',
+                         'SERRA DOURADA',
+                         'SÃO DESIDÉRIO',
+                         'SÃO FÉLIX DO CORIBE',
+                         'TABOCAS DO BREJO VELHO',
+                         'WANDERLEY'],
+    'Nordeste': [   'ACAJUTIBA',
+                    'ADUSTINA',
+                    'ALAGOINHAS',
+                    'ANTAS',
+                    'APORÁ',
+                    'ARACI',
+                    'ARAMARI',
+                    'ARAÇAS',
+                    'BANZAÊ',
+                    'BARROCAS',
+                    'BIRITINGA',
+                    'CANDEAL',
+                    'CANSANÇÃO',
+                    'CANUDOS',
+                    'CAPELA DO ALTO ALEGRE',
+                    'CARDEAL DA SILVA',
+                    'CIPÓ',
+                    'CONCEIÇÃO DO COITÉ',
+                    'CONDE',
+                    'CORONEL JOÃO SÁ',
+                    'CRISÓPOLIS',
+                    'CÍCERO DANTAS',
+                    'ENTRE RIOS',
+                    'ESPLANADA',
+                    'EUCLIDES DA CUNHA',
+                    'FÁTIMA',
+                    'GAVIÃO',
+                    'HELIÓPOLIS',
+                    'ICHU',
+                    'INHAMBUPE',
+                    'ITAPICURU',
+                    'JANDAÍRA',
+                    'JEREMOABO',
+                    'LAMARÃO',
+                    'MONTE SANTO',
+                    'NORDESTINA',
+                    'NOVA FÁTIMA',
+                    'NOVA SOURE',
+                    'NOVO TRIUNFO',
+                    'OLINDINA',
+                    'PARIPIRANGA',
+                    'PEDRO ALEXANDRE',
+                    'PÉ DE SERRA',
+                    'QUEIMADAS',
+                    'QUIJINGUE',
+                    'RETIROLÂNDIA',
+                    'RIACHÃO DO JACUÍPE',
+                    'RIBEIRA DO AMPARO',
+                    'RIBEIRA DO POMBAL',
+                    'RIO REAL',
+                    'SANTA BRÍGIDA',
+                    'SANTALUZ',
+                    'SERRINHA',
+                    'SÁTIRO DIAS',
+                    'SÃO DOMINGOS',
+                    'SÍTIO DO QUINTO',
+                    'TEOFILÂNDIA',
+                    'TUCANO',
+                    'UAUÁ',
+                    'VALENTE'],
+    'Regiâo Metropolitana de Salvador': [   'AMÉLIA RODRIGUES',
+                                     'ARATUÍPE',
+                                     'CABACEIRAS DO PARAGUAÇU',
+                                     'CACHOEIRA',
+                                     'CAMAÇARI',
+                                     'CANDEIAS',
+                                     'CASTRO ALVES',
+                                     'CATU',
+                                     'CONCEIÇÃO DO ALMEIDA',
+                                     'CRUZ DAS ALMAS',
+                                     "DIAS D'ÁVILA",
+                                     'DOM MACEDO COSTA',
+                                     'GOVERNADOR MANGABEIRA',
+                                     'ITANAGRA',
+                                     'ITAPARICA',
+                                     'JAGUARIPE',
+                                     'LAURO DE FREITAS',
+                                     'MADRE DE DEUS',
+                                     'MARAGOGIPE',
+                                     'MATA DE SÃO JOÃO',
+                                     'MUNIZ FERREIRA',
+                                     'MURITIBA',
+                                     'NAZARÉ',
+                                     'POJUCA',
+                                     'SALINAS DA MARGARIDA',
+                                     'SALVADOR',
+                                     'SANTO AMARO',
+                                     'SANTO ANTÔNIO DE JESUS',
+                                     'SAPEAÇU',
+                                     'SAUBARA',
+                                     'SIMÕES FILHO',
+                                     'SÃO FELIPE',
+                                     'SÃO FRANCISCO DO CONDE',
+                                     'SÃO FÉLIX',
+                                     'SÃO SEBASTIÃO DO PASSÉ',
+                                     'TERRA NOVA',
+                                     'VARZEDO',
+                                     'VERA CRUZ'],
+    'Sul': [   'ALCOBAÇA',
+               'ALMADINA',
+               'ARATACA',
+               'AURELINO LEAL',
+               'BARRA DO ROCHA',
+               'BARRO PRETO',
+               'BELMONTE',
+               'BUERAREMA',
+               'CAIRU',
+               'CAMACAN',
+               'CAMAMU',
+               'CANAVIEIRAS',
+               'CARAVELAS',
+               'COARACI',
+               'EUNÁPOLIS',
+               'FIRMINO ALVES',
+               'FLORESTA AZUL',
+               'GANDU',
+               'GONGOGI',
+               'GUARATINGA',
+               'IBICARAÍ',
+               'IBIRAPITANGA',
+               'IBIRAPUÃ',
+               'IBIRATAIA',
+               'IGRAPIÚNA',
+               'ILHÉUS',
+               'IPIAÚ',
+               'ITABELA',
+               'ITABUNA',
+               'ITACARÉ',
+               'ITAGIBÁ',
+               'ITAGIMIRIM',
+               'ITAJU DO COLÔNIA',
+               'ITAJUÍPE',
+               'ITAMARAJU',
+               'ITAMARI',
+               'ITANHÉM',
+               'ITAPEBI',
+               'ITAPITANGA',
+               'ITAPÉ',
+               'ITUBERÁ',
+               'JUCURUÇU',
+               'JUSSARI',
+               'LAJEDÃO',
+               'MARAÚ',
+               'MASCOTE',
+               'MEDEIROS NETO',
+               'MUCURI',
+               'NILO PEÇANHA',
+               'NOVA IBIÁ',
+               'NOVA VIÇOSA',
+               'PAU BRASIL',
+               'PIRAÍ DO NORTE',
+               'PORTO SEGURO',
+               'PRADO',
+               'PRESIDENTE TANCREDO NEVES',
+               'SANTA CRUZ CABRÁLIA',
+               'SANTA CRUZ DA VITÓRIA',
+               'SANTA LUZIA',
+               'SÃO JOSÉ DA VITÓRIA',
+               'TAPEROÁ',
+               'TEIXEIRA DE FREITAS',
+               'TEOLÂNDIA',
+               'UBAITABA',
+               'UBATÃ',
+               'UNA',
+               'URUÇUCA',
+               'VALENÇA',
+               'VEREDA',
+               'WENCESLAU GUIMARÃES'],
+    'Vale São-Franciscano': [   'ABARÉ',
+                                'BARRA',
+                                'BOM JESUS DA LAPA',
+                                'BURITIRAMA',
+                                'CAMPO ALEGRE DE LOURDES',
+                                'CARINHANHA',
+                                'CASA NOVA',
+                                'CHORROCHÓ',
+                                'CURAÇÁ',
+                                'FEIRA DA MATA',
+                                'GLÓRIA',
+                                'IBOTIRAMA',
+                                'ITAGUAÇU DA BAHIA',
+                                'JUAZEIRO',
+                                'MACURURÉ',
+                                'MORPARÁ',
+                                'MUQUÉM DE SÃO FRANCISCO',
+                                'PARATINGA',
+                                'PAULO AFONSO',
+                                'PILÃO ARCADO',
+                                'REMANSO',
+                                'RODELAS',
+                                'SENTO SÉ',
+                                'SERRA DO RAMALHO',
+                                'SOBRADINHO',
+                                'SÍTIO DO MATO',
+                                'XIQUE-XIQUE']
+}
+
 data = openpyxl.load_workbook(
     'data/Anexo 3 - Solicitação Quantidade Serviços Prestados por Tipo BA GERAL - '
     'Atualizado 20250409.xlsx', 
@@ -312,6 +733,12 @@ iframe_height = 1200
 st.title('Mapa Interativo do DETRAN-BA')
 st.write('Visualize diferentes dados do DETRAN-BA por município')
 
+# Adicionar seleção do tipo de mapa
+tipo_mapa = st.radio(
+    'Escolha o tipo de mapa:',
+    ['Mapa de Regiões', 'Mapa Padrão']
+)
+
 # Configurar o layout para ocupar toda a largura disponível
 st.markdown("""
 <style>
@@ -339,9 +766,9 @@ municipios_selecionados = st.multiselect(
     default=[]
 )
 
-# Create a selectbox for choosing the visualization
+# Create a selectbox for choosing the visualization - MOVED OUTSIDE CONDITIONAL
 visualization = st.selectbox(
-    'Escolha o tipo de visualização:',
+    'Escolha o tipo de dados para visualizar no mapa e nas estatísticas:',
     [
         'Frota de Veículos',
         'CFCs', 'Quantidade de CFCs',
@@ -352,6 +779,17 @@ visualization = st.selectbox(
         'Pátios', 'Quantidade de Pátios'
     ]
 )
+
+# Create a selectbox for choosing the visualization
+if tipo_mapa == 'Mapa Padrão':
+    # The visualization selectbox is now defined above, no need to redefine here.
+    # We just need to make sure the logic uses the 'visualization' variable correctly.
+    pass # No action needed here as visualization is already set globally
+# REMOVED ELSE BLOCK:
+# else:
+#     # Para o mapa de regiões, não precisamos de seleção de visualização PARA O MAPA
+#     # Mas as estatísticas ainda usarão a seleção do 'visualization' global
+#     pass # visualization remains as selected globally
 
 # Adicionar seleção de credenciados para visualizações específicas
 credenciado_selecionado = None
@@ -643,7 +1081,10 @@ def create_choropleth(data_df, title):
             aliases=['Município:', 'Quantidade:'],
             labels=True,
             sticky=True,
-            style=("background-color: white; color: #333; font-size: 12px; border: 1px solid #666; border-radius: 3px; padding: 4px;"),
+            # Style for larger size and better readability - MATCHING REGION MAP
+            style=("background-color: white; color: #333; font-family: sans-serif; font-size: 14px; "
+                   "border: 1px solid #bbb; border-radius: 3px; padding: 10px; min-width: 200px; " # Adjusted min-width slightly
+                   "box-shadow: 2px 2px 5px rgba(0,0,0,0.2);"),
             localize=True,
             parse_html=True,
             max_width=300,
@@ -723,7 +1164,134 @@ patio_credenciados = patio_df_24.groupby('Id_Município').agg({
 }).reset_index().rename(columns={'CNPJ': 'Total'})
 
 # Create visualization based on selection
-if visualization == 'Frota de Veículos':
+if tipo_mapa == 'Mapa de Regiões':
+    # Criar um dicionário para mapear municípios para regiões
+    municipio_para_regiao = {}
+    for regiao, municipios in regioes_ba.items():
+        for municipio in municipios:
+            municipio_para_regiao[municipio] = regiao
+
+    # Adicionar a coluna de região ao DataFrame
+    frota_grouped['Regiao'] = frota_grouped['Município'].apply(lambda x: municipio_para_regiao.get(x.upper(), 'Não classificado'))
+
+    # Agrupar por região
+    regioes_grouped = frota_grouped.groupby('Regiao').agg({
+        'Total': 'sum'
+    }).reset_index()
+
+    # Criar um mapa de cores para as regiões
+    cores_regioes = {
+        'Centro-Norte': '#32CD32',  # Verde
+        'Centro-Sul': '#FFFF00',  # Amarelo
+        'Extremo oeste': '#9370DB',  # Roxo
+        'Nordeste': '#8B4513',  # Marrom
+        'Regiâo Metropolitana de Salvador': '#1E90FF',  # Azul
+        'Sul': '#FFA500',  # Laranja
+        'Vale São-Franciscano': '#FF69B4'  # Rosa
+    }
+
+    # --- Prepare data for the selected visualization ---
+    vis_df = None
+    vis_value_col = 'Total'
+    vis_label_prefix = 'Valor' # Default label
+    vis_data_dict = {}
+
+    # Map visualization selection to the correct dataframe and label
+    vis_mapping = {
+        'Frota de Veículos': (frota_grouped, 'Total Veículos'),
+        'CFCs': (cfc_grouped, 'Serviços CFCs'),
+        'Clínicas': (clinicas_grouped, 'Exames Clínicas'),
+        'EPIVs': (epiv_grouped, 'Serviços EPIVs'),
+        'ECVs': (ecv_grouped, 'Vistorias ECVs'),
+        'Vistorias DETRAN': (vistoria_grouped, 'Vistorias DETRAN'),
+        'Pátios': (patio_grouped, 'Veículos Removidos'),
+        'Quantidade de CFCs': (cfc_credenciados, 'Qtd. CFCs'),
+        'Quantidade de Clínicas': (clinicas_credenciadas, 'Qtd. Clínicas'),
+        'Quantidade de EPIVs': (epiv_credenciados, 'Qtd. EPIVs'),
+        'Quantidade de ECVs': (ecv_credenciados, 'Qtd. ECVs'),
+        'Quantidade de Vistorias DETRAN': (vistoria_credenciados, 'Qtd. Vistorias'), # Assuming same structure
+        'Quantidade de Pátios': (patio_credenciados, 'Qtd. Pátios')
+    }
+
+    if visualization in vis_mapping:
+        vis_df, vis_label_prefix = vis_mapping[visualization]
+        if vis_df is not None and 'Município' in vis_df.columns and vis_value_col in vis_df.columns:
+            # Ensure Id_Município is string for potential future use, though we key by name here
+            vis_df['Id_Município'] = vis_df['Id_Município'].astype(str)
+             # Create dict mapping normalized name to the value
+            vis_data_dict = vis_df.set_index(vis_df['Município'].apply(normaliza_nome))[vis_value_col].to_dict()
+        else:
+             # Handle cases where the expected columns aren't present or df is None
+             st.warning(f"Dados para '{visualization}' não puderam ser carregados corretamente para o tooltip.")
+
+    # --- Add region, color, and custom tooltip HTML to GeoJSON ---
+    for feature in geojson_data['features']:
+        municipio_nome_geojson = feature['properties']['name']
+        municipio_upper = municipio_nome_geojson.upper()
+        municipio_norm = normaliza_nome(municipio_nome_geojson)
+
+        # Add region and color
+        regiao = municipio_para_regiao.get(municipio_upper, 'Não classificado')
+        cor = cores_regioes.get(regiao, '#CCCCCC')
+        feature['properties']['regiao'] = regiao
+        feature['properties']['cor'] = cor
+
+        # Get visualization value
+        vis_value = vis_data_dict.get(municipio_norm, 'N/A')
+        # Format numeric values
+        if isinstance(vis_value, (int, float, np.number)):
+             vis_value_formatted = f"{vis_value:,.0f}"
+        else:
+             vis_value_formatted = str(vis_value) # Keep as string if N/A or other non-numeric
+
+        # Construct tooltip HTML
+        tooltip_html = f"""<div style='line-height: 1.5;'>
+            <strong>Município:</strong> {municipio_nome_geojson}<br>
+            <strong>Região:</strong> {regiao}<br>
+            <strong>{vis_label_prefix}:</strong> {vis_value_formatted}
+        </div>"""
+        feature['properties']['tooltip_html'] = tooltip_html
+
+    # --- Create GeoJSON layer with regions and custom tooltip ---
+    folium.GeoJson(
+        geojson_data,
+        name='Regiões da Bahia',
+        style_function=lambda x: {
+            'fillColor': x['properties']['cor'],
+            'color': '#666',
+            'weight': 1,
+            'fillOpacity': 0.7
+        },
+        tooltip=folium.GeoJsonTooltip(
+            fields=['tooltip_html'], # Use the pre-formatted HTML property
+            aliases=[''],      # Aliases are ignored when labels=False
+            labels=False,      # Do not show the field name ('tooltip_html')
+            sticky=True,
+            # Style for larger size and better readability
+            style=("background-color: white; color: #333; font-family: sans-serif; font-size: 14px; "
+                   "border: 1px solid #bbb; border-radius: 3px; padding: 10px; min-width: 220px; "
+                   "box-shadow: 2px 2px 5px rgba(0,0,0,0.2);")
+        ),
+        highlight_function=lambda x: {'weight': 2, 'color':'black', 'fillOpacity': 0.85} # Optional: enhance highlight
+    ).add_to(m)
+
+    # Adicionar legenda
+    legend_html = '''
+    <div style="position: fixed; bottom: 50px; right: 50px; z-index: 1000; background-color: white; 
+                padding: 10px; border: 2px solid grey; border-radius: 5px;">
+        <p><strong>Regiões da Bahia</strong></p>
+    '''
+    for regiao, cor in cores_regioes.items():
+        legend_html += f'''
+        <p>
+            <span style="background-color: {cor}; padding: 0 10px; margin-right: 5px;">&nbsp;</span>
+            {regiao}
+        </p>
+        '''
+    legend_html += '</div>'
+    m.get_root().html.add_child(folium.Element(legend_html))
+
+elif visualization == 'Frota de Veículos':
     create_choropleth(frota_grouped, 'Total de Veículos')
 elif visualization == 'CFCs':
     create_choropleth(cfc_grouped, 'Total de Serviços CFCs')
@@ -753,6 +1321,30 @@ elif visualization == 'Quantidade de Pátios':
 # Display the map
 map_html = m._repr_html_()
 components.html(map_html, width=iframe_width, height=iframe_height, scrolling=False)
+
+# Show regional statistics AFTER the map if the region map is selected
+if tipo_mapa == 'Mapa de Regiões':
+    # Adicionar estatísticas das regiões
+    st.subheader('Estatísticas por Região')
+
+    # Calcular estatísticas por região
+    stats_regioes = frota_grouped.groupby('Regiao').agg({
+        'Total': ['sum', 'mean', 'count']
+    }).round(2)
+    stats_regioes.columns = ['Total de Veículos', 'Média por Município', 'Número de Municípios']
+    stats_regioes = stats_regioes.reset_index()
+
+    # Exibir estatísticas em colunas
+    cols = st.columns(3)
+    for i, regiao in enumerate(stats_regioes['Regiao']):
+        col_idx = i % 3
+        with cols[col_idx]:
+            st.markdown(f"**{regiao}**")
+            st.write(f"Total de Veículos: {stats_regioes.loc[i, 'Total de Veículos']:,.0f}")
+            st.write(f"Média por Município: {stats_regioes.loc[i, 'Média por Município']:,.0f}")
+            st.write(f"Número de Municípios: {stats_regioes.loc[i, 'Número de Municípios']:,.0f}")
+            st.write("---")
+
 st.markdown(
     '''
     <style>

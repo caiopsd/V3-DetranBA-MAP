@@ -553,7 +553,7 @@ frota_df_24 = frota_df_24.drop([0, 1, 2, 3])
 frota_df_24 = frota_df_24.iloc[:-2]
 frota_df_24 = frota_df_24.reset_index(drop=True)
 frota_df_24['Percentual'] = frota_df_24['Percentual'].apply(lambda x: round(x * 100, 2))
-frota_df_24['Id_Município'][frota_df_24['Município'] == 'SALVADOR'] = 3849
+frota_df_24.loc[frota_df_24['Município'] == 'SALVADOR', 'Id_Município'] = 3849
 
 # When adding data to frota_grouped, make sure to fix Dias d'Ávila name
 dias_avila_mask = frota_df_24['Município'].apply(lambda x: 'DIAS' in str(x).upper() and ('AVILA' in str(x).upper() or 'ÁVILA' in str(x).upper()))
@@ -2074,10 +2074,20 @@ if tipo_mapa == 'Mapa de Regiões':
             vis_value_formatted = str(vis_value) # Keep as string if N/A or other non-numeric
 
         # Construct tooltip HTML
+        # Get population data safely using the GeoJSON municipality ID
+        current_mun_id_geojson = str(feature['properties']['id'])
+        pop_data_series = populacao_df.loc[populacao_df['Id_Município'] == current_mun_id_geojson, 'População']
+        
+        populacao_display_string = "N/A" # Default if not found or NaN
+        if not pop_data_series.empty:
+            pop_value = pop_data_series.iloc[0]
+            if pd.notna(pop_value):
+                populacao_display_string = f"{pop_value:,.0f}"
+
         tooltip_html = f"""<div style='line-height: 1.5;'>
             <strong>Município:</strong> {municipio_nome_geojson}<br>
             <strong>Região:</strong> {regiao}<br>
-            <strong>População:</strong> {populacao_df.loc[populacao_df['Id_Município'] == municipio_upper, 'População'].iloc[0]:,.0f}<br>
+            <strong>População:</strong> {populacao_display_string}<br>
             <strong>{vis_label_prefix}:</strong> {vis_value_formatted}
         </div>"""
         feature['properties']['tooltip_html'] = tooltip_html

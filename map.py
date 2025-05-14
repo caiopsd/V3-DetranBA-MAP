@@ -2521,10 +2521,10 @@ st.markdown(
     '''
     <style>
     iframe {
-        height: 1200px !important;
+        height: 800px !important; /* Match Python iframe_height variable */
         width: 100% !important;
         max-width: none !important;
-        padding: 20px !important;
+        padding: 0px !important; /* Remove internal iframe padding */
         box-sizing: border-box !important;
         overflow: hidden !important;
     }

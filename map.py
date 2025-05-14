@@ -12,54 +12,6 @@ import unicodedata
 
 st.set_page_config(layout="wide")
 
-# --- Cached Data Loading Functions ---
-@st.cache_data
-def load_servicos_workbook():
-    """Loads the main services Excel workbook."""
-    return openpyxl.load_workbook(
-        'data/Anexo 3 - Solicitação Quantidade Serviços Prestados por Tipo BA GERAL - '
-        'Atualizado 20250409.xlsx', 
-        data_only=True
-    )
-
-@st.cache_data
-def load_frota_workbook():
-    """Loads the fleet data Excel workbook."""
-    return openpyxl.load_workbook(
-        'data/Novo Anexo 1 - Solicitação de Frota BA 2022_2023_2024_2025 em 20250107.xlsx', 
-        data_only=True
-    )
-
-@st.cache_data
-def load_populacao_df():
-    """Loads the population data Excel file into a DataFrame."""
-    pop_df = pd.read_excel('data/populacao.xlsx')
-    # Renomear colunas para padronização e compatibilidade
-    pop_df = pop_df.rename(columns={'Id_Municipio': 'Id_Município', 'Municipio': 'Município_POP', 'Populacao': 'População'})
-    # Garantir que Id_Município seja string para merge
-    pop_df['Id_Município'] = pop_df['Id_Município'].astype(str)
-    # Remover municípios duplicados no dataframe de população, mantendo a primeira ocorrência
-    pop_df = pop_df.drop_duplicates(subset=['Id_Município'], keep='first')
-    return pop_df
-
-@st.cache_data
-def load_geojson_data():
-    """Loads the GeoJSON file for Bahia municipalities."""
-    with open('data/geo-ba.json', 'r', encoding='utf-8') as f:
-        return json.load(f)
-
-@st.cache_data
-def load_credenciados_cfc_df():
-    """Loads the Credenciados CFC CSV file."""
-    return pd.read_csv('data/CredenciadosCFC.csv', header=None, names=['Nome', 'Município'])
-
-@st.cache_data
-def load_credenciados_clinica_df():
-    """Loads the Credenciados Clinica CSV file."""
-    return pd.read_csv('data/CredenciadosClinica.csv', header=None, names=['Nome', 'Município'])
-
-# --- End of Cached Data Loading Functions ---
-
 # Definição das regiões da Bahia
 regioes_ba = {
     'Centro-Norte': [   'AMÉRICA DOURADA',
@@ -481,22 +433,16 @@ regioes_ba = {
                                 'XIQUE-XIQUE']
 }
 
-# Load data using cached functions
-data_servicos_workbook = load_servicos_workbook()
-data_frota_workbook = load_frota_workbook()
-populacao_df_loaded = load_populacao_df() # Renamed to avoid conflict with later populacao_df
-geojson_data_loaded = load_geojson_data() # Renamed to avoid conflict
-credenciados_cfc_df_loaded = load_credenciados_cfc_df() # Renamed
-credenciados_clinica_df_loaded = load_credenciados_clinica_df() # Renamed
+data = openpyxl.load_workbook(
+    'data/Anexo 3 - Solicitação Quantidade Serviços Prestados por Tipo BA GERAL - '
+    'Atualizado 20250409.xlsx', 
+    data_only=True
+)
 
-# Assign to original variable names (or update downstream code to use _loaded names)
-# For now, I will reassign to original names used later in the script
-data = data_servicos_workbook
-data_frota = data_frota_workbook
-populacao_df = populacao_df_loaded.copy() # Use .copy() if it will be modified
-geojson_data = geojson_data_loaded
-credenciados_cfc_df = credenciados_cfc_df_loaded.copy()
-credenciados_clinica_df = credenciados_clinica_df_loaded.copy()
+data_frota = openpyxl.load_workbook(
+    'data/Novo Anexo 1 - Solicitação de Frota BA 2022_2023_2024_2025 em 20250107.xlsx', 
+    data_only=True
+)
 
 clinicas_cols = [
     'Id_Município Cidadão', 
@@ -599,269 +545,200 @@ frota_cols = [
     'Percentual'
 ]
 
-# --- Cached DataFrame Processing Functions ---
-@st.cache_data
-def get_frota_df_24(_frota_workbook, _frota_cols):
-    frota_sheet = _frota_workbook['2025']
-    df = pd.DataFrame(frota_sheet.values)
-    df = df.drop(columns=[16,17,18,19,20,21,22,23,24,25,26])
-    df.columns = _frota_cols
-    df = df.drop([0, 1, 2, 3])
-    df = df.iloc[:-2]
-    df = df.reset_index(drop=True)
-    df['Percentual'] = df['Percentual'].apply(lambda x: round(x * 100, 2) if pd.notna(x) else x)
-    df.loc[df['Município'] == 'SALVADOR', 'Id_Município'] = 3849
-    dias_avila_mask = df['Município'].apply(lambda x: 'DIAS' in str(x).upper() and ('AVILA' in str(x).upper() or 'ÁVILA' in str(x).upper()))
-    if dias_avila_mask.any():
-        df.loc[dias_avila_mask, 'Município'] = "DIAS D'ÁVILA"
-    return df
+frota_24 = data_frota['2025']
+frota_df_24 = pd.DataFrame(frota_24.values)
+frota_df_24 = frota_df_24.drop(columns=[16,17,18,19,20,21,22,23,24,25,26])
+frota_df_24.columns = frota_cols
+frota_df_24 = frota_df_24.drop([0, 1, 2, 3])
+frota_df_24 = frota_df_24.iloc[:-2]
+frota_df_24 = frota_df_24.reset_index(drop=True)
+frota_df_24['Percentual'] = frota_df_24['Percentual'].apply(lambda x: round(x * 100, 2))
+frota_df_24.loc[frota_df_24['Município'] == 'SALVADOR', 'Id_Município'] = 3849
 
-@st.cache_data
-def get_cfc_df_24(_servicos_workbook, _cfc_cols):
-    cfc_sheet = _servicos_workbook['Serviços_CFC_2024']
-    df = pd.DataFrame(cfc_sheet.values)
-    df.columns = _cfc_cols
-    df = df.drop([0,1,2,3])
-    df = df.iloc[:-2]
-    df = df.reset_index(drop=True)
-    df['CNPJ'] = df['CNPJ'].astype(str).str.strip().replace('\\.0$', '', regex=True)
-    df['Percentual'] = df['Percentual'].apply(lambda x: round(x * 100, 2) if pd.notna(x) else x)
-    df['Total'] = pd.to_numeric(df['Total'], errors='coerce').fillna(0)
-    return df
+# When adding data to frota_grouped, make sure to fix Dias d'Ávila name
+dias_avila_mask = frota_df_24['Município'].apply(lambda x: 'DIAS' in str(x).upper() and ('AVILA' in str(x).upper() or 'ÁVILA' in str(x).upper()))
+if dias_avila_mask.any():
+    frota_df_24.loc[dias_avila_mask, 'Município'] = "DIAS D'ÁVILA"
 
-@st.cache_data
-def get_clinicas_df_24(_servicos_workbook, _clinicas_cols):
-    clinicas_sheet = _servicos_workbook['Serviços_Clinica_2024']
-    df = pd.DataFrame(clinicas_sheet.values)
-    df.columns = _clinicas_cols
-    df = df.drop([0,1,2,3])
-    df = df.iloc[:-2]
-    df = df.reset_index(drop=True)
-    df['CNPJ'] = df['CNPJ'].astype(str).str.strip().replace('\\.0$', '', regex=True)
-    df['Percentual'] = df['Percentual'].apply(lambda x: round(x * 100, 2) if pd.notna(x) else x)
-    df['Total'] = pd.to_numeric(df['Total'], errors='coerce').fillna(0)
-    return df
+cfc_24 = data['Serviços_CFC_2024']
+cfc_df_24 = pd.DataFrame(cfc_24.values)
+cfc_df_24.columns = cfc_cols
+cfc_df_24 = cfc_df_24.drop([0,1,2,3])
+cfc_df_24 = cfc_df_24.iloc[:-2]
+cfc_df_24 = cfc_df_24.reset_index(drop=True)
+# Ensure CNPJ is string for consistent filtering
+cfc_df_24['CNPJ'] = cfc_df_24['CNPJ'].astype(str).str.strip().replace('\\.0$', '', regex=True)
+cfc_df_24['Percentual'] = cfc_df_24['Percentual'].apply(lambda x: round(x * 100, 2))
+cfc_df_24['Total'] = pd.to_numeric(cfc_df_24['Total'], errors='coerce').fillna(0)
 
-@st.cache_data
-def get_epiv_df_24(_servicos_workbook, _epiv_cols):
-    epiv_sheet = _servicos_workbook['Serviços_EPIV_2024']
-    df = pd.DataFrame(epiv_sheet.values)
-    df.columns = _epiv_cols
-    df = df.drop([0,1,2,3])
-    df = df.iloc[:-2]
-    df = df.reset_index(drop=True)
-    df['Percentual'] = df['Percentual'].apply(lambda x: round(x * 100, 2) if pd.notna(x) else x)
-    df['Total'] = pd.to_numeric(df['Total'], errors='coerce').fillna(0)
-    return df
+clinicas_24 = data['Serviços_Clinica_2024']
+clinicas_df_24 = pd.DataFrame(clinicas_24.values)
+clinicas_df_24.columns = clinicas_cols
+clinicas_df_24 = clinicas_df_24.drop([0,1,2,3])
+clinicas_df_24 = clinicas_df_24.iloc[:-2]
+clinicas_df_24 = clinicas_df_24.reset_index(drop=True)
+# Ensure CNPJ is string for consistent filtering
+clinicas_df_24['CNPJ'] = clinicas_df_24['CNPJ'].astype(str).str.strip().replace('\\.0$', '', regex=True)
+clinicas_df_24['Percentual'] = clinicas_df_24['Percentual'].apply(lambda x: round(x * 100, 2))
+clinicas_df_24['Total'] = pd.to_numeric(clinicas_df_24['Total'], errors='coerce').fillna(0)
 
-@st.cache_data
-def get_ecv_df_24(_servicos_workbook, _ecv_cols):
-    ecv_sheet = _servicos_workbook['Serviços_ECV_2024']
-    df = pd.DataFrame(ecv_sheet.values)
-    df.columns = _ecv_cols
-    df = df.drop([0,1,2,3])
-    df = df.iloc[:-2]
-    df = df.reset_index(drop=True)
-    df['Percentual'] = df['Percentual'].apply(lambda x: round(x * 100, 2) if pd.notna(x) else x)
-    df['Total'] = pd.to_numeric(df['Total'], errors='coerce').fillna(0)
-    return df
+epiv_24 = data['Serviços_EPIV_2024']
+epiv_df_24 = pd.DataFrame(epiv_24.values)
+epiv_df_24.columns = epiv_cols
+epiv_df_24 = epiv_df_24.drop([0,1,2,3])
+epiv_df_24 = epiv_df_24.iloc[:-2]
+epiv_df_24 = epiv_df_24.reset_index(drop=True)
+epiv_df_24['Percentual'] = epiv_df_24['Percentual'].apply(lambda x: round(x * 100, 2))
+epiv_df_24['Total'] = pd.to_numeric(epiv_df_24['Total'], errors='coerce').fillna(0)
 
-@st.cache_data
-def get_vistoria_df_24(_servicos_workbook, _ecv_cols): # Uses ecv_cols intentionally
-    vistoria_sheet = _servicos_workbook['Serviços_Vistoria_DETRAN_2024']
-    df = pd.DataFrame(vistoria_sheet.values)
-    df.columns = _ecv_cols
-    df = df.drop([0,1,2,3])
-    df = df.iloc[:-2]
-    df = df.reset_index(drop=True)
-    df['Percentual'] = df['Percentual'].apply(lambda x: round(x * 100, 2) if pd.notna(x) else x)
-    df['Total'] = pd.to_numeric(df['Total'], errors='coerce').fillna(0)
-    return df
+ecv_24 = data['Serviços_ECV_2024']
+ecv_df_24 = pd.DataFrame(ecv_24.values)
+ecv_df_24.columns = ecv_cols
+ecv_df_24 = ecv_df_24.drop([0,1,2,3])
+ecv_df_24 = ecv_df_24.iloc[:-2]
+ecv_df_24 = ecv_df_24.reset_index(drop=True)
+ecv_df_24['Percentual'] = ecv_df_24['Percentual'].apply(lambda x: round(x * 100, 2))
+ecv_df_24['Total'] = pd.to_numeric(ecv_df_24['Total'], errors='coerce').fillna(0)
 
-@st.cache_data
-def get_patio_df_24(_servicos_workbook, _patio_cols):
-    patio_sheet = _servicos_workbook['Serviços_Pátio_2024']
-    df = pd.DataFrame(patio_sheet.values)
-    df.columns = _patio_cols
-    df = df.drop([0,1,2,3])
-    df = df.iloc[:-2]
-    df = df.reset_index(drop=True)
-    df['Percentual'] = df['Percentual'].apply(lambda x: round(x * 100, 2) if pd.notna(x) else x)
-    df['Total'] = pd.to_numeric(df['Total'], errors='coerce').fillna(0)
-    return df
+vistoria_24 = data['Serviços_Vistoria_DETRAN_2024']
+vistoria_df_24 = pd.DataFrame(vistoria_24.values)
+vistoria_df_24.columns = ecv_cols
+vistoria_df_24 = vistoria_df_24.drop([0,1,2,3])
+vistoria_df_24 = vistoria_df_24.iloc[:-2]
+vistoria_df_24 = vistoria_df_24.reset_index(drop=True)
+vistoria_df_24['Percentual'] = vistoria_df_24['Percentual'].apply(lambda x: round(x * 100, 2))
+vistoria_df_24['Total'] = pd.to_numeric(vistoria_df_24['Total'], errors='coerce').fillna(0)
 
-# --- End of Cached DataFrame Processing Functions ---
+patio_24 = data['Serviços_Pátio_2024']
+patio_df_24 = pd.DataFrame(patio_24.values)
+patio_df_24.columns = patio_cols
+patio_df_24 = patio_df_24.drop([0,1,2,3])
+patio_df_24 = patio_df_24.iloc[:-2]
+patio_df_24 = patio_df_24.reset_index(drop=True)
+patio_df_24['Percentual'] = patio_df_24['Percentual'].apply(lambda x: round(x * 100, 2))
+patio_df_24['Total'] = pd.to_numeric(patio_df_24['Total'], errors='coerce').fillna(0)
 
-# Call cached functions to get the processed DataFrames
-frota_df_24 = get_frota_df_24(data_frota_workbook, frota_cols)
-cfc_df_24 = get_cfc_df_24(data_servicos_workbook, cfc_cols)
-clinicas_df_24 = get_clinicas_df_24(data_servicos_workbook, clinicas_cols)
-epiv_df_24 = get_epiv_df_24(data_servicos_workbook, epiv_cols)
-ecv_df_24 = get_ecv_df_24(data_servicos_workbook, ecv_cols)
-vistoria_df_24 = get_vistoria_df_24(data_servicos_workbook, ecv_cols) # Uses ecv_cols as in original
-patio_df_24 = get_patio_df_24(data_servicos_workbook, patio_cols)
-
-# --- Cached Aggregation and Grouping Functions ---
-
-@st.cache_data
-def get_global_total_servicos_por_cnpj(_df):
-    """Calculates global total services grouped by CNPJ for a given DataFrame."""
-    if 'CNPJ' in _df.columns and 'Total' in _df.columns:
-        return _df.groupby('CNPJ')['Total'].sum().reset_index()
-    return pd.DataFrame() # Return empty DataFrame if required columns are missing
-
-@st.cache_data
-def get_cfc_grouped(_cfc_df_24):
-    df = _cfc_df_24.groupby('Id_Município CFC').agg({
-        'Município CFC': 'first',
-        'Cursos Teóricos': lambda x: pd.to_numeric(x, errors='coerce').sum(),
-        'Cursos Práticos': lambda x: pd.to_numeric(x, errors='coerce').sum(),
-        'Total': lambda x: pd.to_numeric(x, errors='coerce').sum()
-    }).reset_index().rename(columns={'Id_Município CFC': 'Id_Município', 'Município CFC': 'Município'})
-    dias_avila_mask = df['Município'].apply(lambda x: 'DIAS' in str(x).upper() and ('AVILA' in str(x).upper() or 'ÁVILA' in str(x).upper()))
-    if dias_avila_mask.any():
-        df.loc[dias_avila_mask, 'Município'] = "DIAS D'ÁVILA"
-    df['Id_Município'] = df['Id_Município'].astype(str)
-    return df
-
-@st.cache_data
-def get_clinicas_grouped(_clinicas_df_24):
-    df = _clinicas_df_24.groupby('Id_Município Clínica').agg({
-        'Município Clínica': 'first',
-        'Exames Médicos': lambda x: pd.to_numeric(x, errors='coerce').sum(),
-        'Exames Psicológicos': lambda x: pd.to_numeric(x, errors='coerce').sum(),
-        'Total': lambda x: pd.to_numeric(x, errors='coerce').sum()
-    }).reset_index().rename(columns={'Id_Município Clínica': 'Id_Município', 'Município Clínica': 'Município'})
-    df['Id_Município'] = df['Id_Município'].astype(str)
-    return df
-
-@st.cache_data
-def get_frota_grouped(_frota_df_24, _populacao_df_arg):
-    df = _frota_df_24.groupby('Id_Município').agg({
-        'Município': 'first',
-        'Automóvel': lambda x: pd.to_numeric(x, errors='coerce').sum(),
-        'Caminhão': lambda x: pd.to_numeric(x, errors='coerce').sum(),
-        'Caminhonete': lambda x: pd.to_numeric(x, errors='coerce').sum(),
-        'Microonibus': lambda x: pd.to_numeric(x, errors='coerce').sum(),
-        'Moto': lambda x: pd.to_numeric(x, errors='coerce').sum(),
-        'Motor-Casa': lambda x: pd.to_numeric(x, errors='coerce').sum(),
-        'Onibus': lambda x: pd.to_numeric(x, errors='coerce').sum(),
-        'Reboque': lambda x: pd.to_numeric(x, errors='coerce').sum(),
-        'Trator': lambda x: pd.to_numeric(x, errors='coerce').sum(),
-        'Outros': lambda x: pd.to_numeric(x, errors='coerce').sum(),
-        'Total': lambda x: pd.to_numeric(x, errors='coerce').sum()
-    }).reset_index()
-    df['Id_Município'] = df['Id_Município'].astype(str)
-    _populacao_df_copy = _populacao_df_arg.copy()
-    _populacao_df_copy['Id_Município'] = _populacao_df_copy['Id_Município'].astype(str)
-    df = pd.merge(df, _populacao_df_copy[['Id_Município', 'População']], on='Id_Município', how='left')
-    return df
-
-@st.cache_data
-def get_epiv_grouped(_epiv_df_24):
-    df = _epiv_df_24.groupby('Id_Município').agg({
-        'Município': 'first',
-        'Estampagem': lambda x: pd.to_numeric(x, errors='coerce').sum(),
-        'Total': lambda x: pd.to_numeric(x, errors='coerce').sum()
-    }).reset_index()
-    df['Id_Município'] = df['Id_Município'].astype(str)
-    return df
-
-@st.cache_data
-def get_ecv_grouped(_ecv_df_24):
-    df = _ecv_df_24.groupby('Id_Município').agg({
-        'Município': 'first',
-        'Vistoria Lacrada Veículo 4 Rodas Até 16 Lugares ou Maior 3,5T': lambda x: pd.to_numeric(x, errors='coerce').sum(),
-        'Vistoria Lacrada Veículo Carga PBT Mais 3,5T': lambda x: pd.to_numeric(x, errors='coerce').sum(),
-        'Vistoria Lacrada Veículo Combinado Veículo P/Unidade': lambda x: pd.to_numeric(x, errors='coerce').sum(),
-        'Vistoria Lacrada Veículo Passageiro com Lotação Acima de 16 Lugares': lambda x: pd.to_numeric(x, errors='coerce').sum(),
-        'Vistoria Lacrada Veículo 2 ou 3 Rodas': lambda x: pd.to_numeric(x, errors='coerce').sum(),
-        'Vistoria RENAVE de Veículo 4 Rodas 16 Lugares ou Até 3,5 Ton': lambda x: pd.to_numeric(x, errors='coerce').sum(),
-        'Vistoria RENAVE de Veículos de 2 e 3 Rodas': lambda x: pd.to_numeric(x, errors='coerce').sum(),
-        'Vistoria Veículo Carga com PBT Acima de 3,5T': lambda x: pd.to_numeric(x, errors='coerce').sum(),
-        'Vistoria Veicular de Combinações de Veículos por Unidade': lambda x: pd.to_numeric(x, errors='coerce').sum(),
-        'Vistoria Veículo 2 ou 3 Rodas': lambda x: pd.to_numeric(x, errors='coerce').sum(),
-        'Vistoria Veículo 4 Rodas Até 16 Lugares ou Até 3,5 Ton': lambda x: pd.to_numeric(x, errors='coerce').sum(),
-        'Vistoria Veículo Passageiros com Capacidade Acima de 16 Lugares': lambda x: pd.to_numeric(x, errors='coerce').sum(),
-        'Outras': lambda x: pd.to_numeric(x, errors='coerce').sum(),
-        'Total': lambda x: pd.to_numeric(x, errors='coerce').sum()
-    }).reset_index()
-    df['Id_Município'] = df['Id_Município'].astype(str)
-    return df
-
-@st.cache_data
-def get_vistoria_grouped(_vistoria_df_24):
-    df = _vistoria_df_24.groupby('Id_Município').agg({
-        'Município': 'first',
-        'Vistoria Lacrada Veículo 4 Rodas Até 16 Lugares ou Maior 3,5T': lambda x: pd.to_numeric(x, errors='coerce').sum(),
-        'Vistoria Lacrada Veículo Carga PBT Mais 3,5T': lambda x: pd.to_numeric(x, errors='coerce').sum(),
-        'Vistoria Lacrada Veículo Combinado Veículo P/Unidade': lambda x: pd.to_numeric(x, errors='coerce').sum(),
-        'Vistoria Lacrada Veículo Passageiro com Lotação Acima de 16 Lugares': lambda x: pd.to_numeric(x, errors='coerce').sum(),
-        'Vistoria Lacrada Veículo 2 ou 3 Rodas': lambda x: pd.to_numeric(x, errors='coerce').sum(),
-        'Vistoria RENAVE de Veículo 4 Rodas 16 Lugares ou Até 3,5 Ton': lambda x: pd.to_numeric(x, errors='coerce').sum(),
-        'Vistoria RENAVE de Veículos de 2 e 3 Rodas': lambda x: pd.to_numeric(x, errors='coerce').sum(),
-        'Vistoria Veículo Carga com PBT Acima de 3,5T': lambda x: pd.to_numeric(x, errors='coerce').sum(),
-        'Vistoria Veicular de Combinações de Veículos por Unidade': lambda x: pd.to_numeric(x, errors='coerce').sum(),
-        'Vistoria Veículo 2 ou 3 Rodas': lambda x: pd.to_numeric(x, errors='coerce').sum(),
-        'Vistoria Veículo 4 Rodas Até 16 Lugares ou Até 3,5 Ton': lambda x: pd.to_numeric(x, errors='coerce').sum(),
-        'Vistoria Veículo Passageiros com Capacidade Acima de 16 Lugares': lambda x: pd.to_numeric(x, errors='coerce').sum(),
-        'Outras': lambda x: pd.to_numeric(x, errors='coerce').sum(),
-        'Total': lambda x: pd.to_numeric(x, errors='coerce').sum()
-    }).reset_index()
-    df['Id_Município'] = df['Id_Município'].astype(str)
-    return df
-
-@st.cache_data
-def get_patio_grouped(_patio_df_24):
-    df = _patio_df_24.groupby('Id_Município').agg({
-        'Município': 'first',
-        'Veículos removidos': lambda x: pd.to_numeric(x, errors='coerce').sum(),
-        'Total': lambda x: pd.to_numeric(x, errors='coerce').sum()
-    }).reset_index()
-    df['Id_Município'] = df['Id_Município'].astype(str)
-    return df
-
-# Call cached functions to get global totals and grouped DataFrames
-cfc_total_servicos_global_por_cnpj = get_global_total_servicos_por_cnpj(cfc_df_24)
-clinica_total_servicos_global_por_cnpj = get_global_total_servicos_por_cnpj(clinicas_df_24)
-epiv_total_servicos_global_por_cnpj = get_global_total_servicos_por_cnpj(epiv_df_24)
-ecv_total_servicos_global_por_cnpj = get_global_total_servicos_por_cnpj(ecv_df_24)
-vistoria_total_servicos_global_por_cnpj = get_global_total_servicos_por_cnpj(vistoria_df_24)
-patio_total_servicos_global_por_cnpj = get_global_total_servicos_por_cnpj(patio_df_24)
-
-cfc_grouped = get_cfc_grouped(cfc_df_24)
-clinicas_grouped = get_clinicas_grouped(clinicas_df_24)
-frota_grouped = get_frota_grouped(frota_df_24, populacao_df) # populacao_df is already a copy of the loaded data
-epiv_grouped = get_epiv_grouped(epiv_df_24)
-ecv_grouped = get_ecv_grouped(ecv_df_24)
-vistoria_grouped = get_vistoria_grouped(vistoria_df_24)
-patio_grouped = get_patio_grouped(patio_df_24)
-
-# The populacao_df rename for map regions part needs to use a fresh copy from the loaded data.
-populacao_df_for_regions = populacao_df_loaded.copy() # Use a fresh copy directly from the cached load
-populacao_df_for_regions = populacao_df_for_regions.rename(columns={'População': 'Total'})
-
-# --- End of Cached Aggregation and Grouping Functions ---
+# Carregar dados de população
+populacao_df = pd.read_excel('data/populacao.xlsx')
+# Renomear colunas para padronização e compatibilidade
+populacao_df = populacao_df.rename(columns={'Id_Municipio': 'Id_Município', 'Municipio': 'Município_POP', 'Populacao': 'População'})
+# Garantir que Id_Município seja string para merge
+populacao_df['Id_Município'] = populacao_df['Id_Município'].astype(str)
+# Remover municípios duplicados no dataframe de população, mantendo a primeira ocorrência
+populacao_df = populacao_df.drop_duplicates(subset=['Id_Município'], keep='first')
 
 # Calcular totais globais de serviços por CNPJ
-# cfc_total_servicos_global_por_cnpj = cfc_df_24.groupby('CNPJ')['Total'].sum().reset_index()
-# clinica_total_servicos_global_por_cnpj = clinicas_df_24.groupby('CNPJ')['Total'].sum().reset_index()
-# epiv_total_servicos_global_por_cnpj = epiv_df_24.groupby('CNPJ')['Total'].sum().reset_index()
-# ecv_total_servicos_global_por_cnpj = ecv_df_24.groupby('CNPJ')['Total'].sum().reset_index()
-# vistoria_total_servicos_global_por_cnpj = vistoria_df_24.groupby('CNPJ')['Total'].sum().reset_index()
-# patio_total_servicos_global_por_cnpj = patio_df_24.groupby('CNPJ')['Total'].sum().reset_index()
+cfc_total_servicos_global_por_cnpj = cfc_df_24.groupby('CNPJ')['Total'].sum().reset_index()
+clinica_total_servicos_global_por_cnpj = clinicas_df_24.groupby('CNPJ')['Total'].sum().reset_index()
+epiv_total_servicos_global_por_cnpj = epiv_df_24.groupby('CNPJ')['Total'].sum().reset_index()
+ecv_total_servicos_global_por_cnpj = ecv_df_24.groupby('CNPJ')['Total'].sum().reset_index()
+vistoria_total_servicos_global_por_cnpj = vistoria_df_24.groupby('CNPJ')['Total'].sum().reset_index()
+patio_total_servicos_global_por_cnpj = patio_df_24.groupby('CNPJ')['Total'].sum().reset_index()
 
 # Criar dataframes agrupados por município
-# ... (all original grouping logic lines are now commented out or moved to cached functions) ...
+# CFCs - agrupar por município do CFC
+cfc_grouped = cfc_df_24.groupby('Id_Município CFC').agg({
+    'Município CFC': 'first',
+    'Cursos Teóricos': lambda x: pd.to_numeric(x, errors='coerce').sum(),
+    'Cursos Práticos': lambda x: pd.to_numeric(x, errors='coerce').sum(),
+    'Total': lambda x: pd.to_numeric(x, errors='coerce').sum()
+}).reset_index().rename(columns={'Id_Município CFC': 'Id_Município', 'Município CFC': 'Município'})
+
+# Fix Dias d'Ávila in cfc_grouped
+dias_avila_mask = cfc_grouped['Município'].apply(lambda x: 'DIAS' in str(x).upper() and ('AVILA' in str(x).upper() or 'ÁVILA' in str(x).upper()))
+if dias_avila_mask.any():
+    cfc_grouped.loc[dias_avila_mask, 'Município'] = "DIAS D'ÁVILA"
+
+# Clínicas - agrupar por município da clínica
+clinicas_grouped = clinicas_df_24.groupby('Id_Município Clínica').agg({
+    'Município Clínica': 'first',
+    'Exames Médicos': lambda x: pd.to_numeric(x, errors='coerce').sum(),
+    'Exames Psicológicos': lambda x: pd.to_numeric(x, errors='coerce').sum(),
+    'Total': lambda x: pd.to_numeric(x, errors='coerce').sum()
+}).reset_index().rename(columns={'Id_Município Clínica': 'Id_Município', 'Município Clínica': 'Município'})
+
+# Frota - agrupar por município
+frota_grouped = frota_df_24.groupby('Id_Município').agg({
+    'Município': 'first',
+    'Automóvel': lambda x: pd.to_numeric(x, errors='coerce').sum(),
+    'Caminhão': lambda x: pd.to_numeric(x, errors='coerce').sum(),
+    'Caminhonete': lambda x: pd.to_numeric(x, errors='coerce').sum(),
+    'Microonibus': lambda x: pd.to_numeric(x, errors='coerce').sum(),
+    'Moto': lambda x: pd.to_numeric(x, errors='coerce').sum(),
+    'Motor-Casa': lambda x: pd.to_numeric(x, errors='coerce').sum(),
+    'Onibus': lambda x: pd.to_numeric(x, errors='coerce').sum(),
+    'Reboque': lambda x: pd.to_numeric(x, errors='coerce').sum(),
+    'Trator': lambda x: pd.to_numeric(x, errors='coerce').sum(),
+    'Outros': lambda x: pd.to_numeric(x, errors='coerce').sum(),
+    'Total': lambda x: pd.to_numeric(x, errors='coerce').sum()
+}).reset_index()
+
+# Garantir que a coluna de merge em frota_grouped também seja string
+frota_grouped['Id_Município'] = frota_grouped['Id_Município'].astype(str)
+
+# Mesclar frota_grouped com populacao_df
+frota_grouped = pd.merge(frota_grouped, populacao_df[['Id_Município', 'População']], on='Id_Município', how='left')
+
+populacao_df = populacao_df.rename(columns={'População': 'Total'})
+# EPIVs - agrupar por município
+epiv_grouped = epiv_df_24.groupby('Id_Município').agg({
+    'Município': 'first',
+    'Estampagem': lambda x: pd.to_numeric(x, errors='coerce').sum(),
+    'Total': lambda x: pd.to_numeric(x, errors='coerce').sum()
+}).reset_index()
+
+# ECVs - agrupar por município
+ecv_grouped = ecv_df_24.groupby('Id_Município').agg({
+    'Município': 'first',
+    'Vistoria Lacrada Veículo 4 Rodas Até 16 Lugares ou Maior 3,5T': lambda x: pd.to_numeric(x, errors='coerce').sum(),
+    'Vistoria Lacrada Veículo Carga PBT Mais 3,5T': lambda x: pd.to_numeric(x, errors='coerce').sum(),
+    'Vistoria Lacrada Veículo Combinado Veículo P/Unidade': lambda x: pd.to_numeric(x, errors='coerce').sum(),
+    'Vistoria Lacrada Veículo Passageiro com Lotação Acima de 16 Lugares': lambda x: pd.to_numeric(x, errors='coerce').sum(),
+    'Vistoria Lacrada Veículo 2 ou 3 Rodas': lambda x: pd.to_numeric(x, errors='coerce').sum(),
+    'Vistoria RENAVE de Veículo 4 Rodas 16 Lugares ou Até 3,5 Ton': lambda x: pd.to_numeric(x, errors='coerce').sum(),
+    'Vistoria RENAVE de Veículos de 2 e 3 Rodas': lambda x: pd.to_numeric(x, errors='coerce').sum(),
+    'Vistoria Veículo Carga com PBT Acima de 3,5T': lambda x: pd.to_numeric(x, errors='coerce').sum(),
+    'Vistoria Veicular de Combinações de Veículos por Unidade': lambda x: pd.to_numeric(x, errors='coerce').sum(),
+    'Vistoria Veículo 2 ou 3 Rodas': lambda x: pd.to_numeric(x, errors='coerce').sum(),
+    'Vistoria Veículo 4 Rodas Até 16 Lugares ou Até 3,5 Ton': lambda x: pd.to_numeric(x, errors='coerce').sum(),
+    'Vistoria Veículo Passageiros com Capacidade Acima de 16 Lugares': lambda x: pd.to_numeric(x, errors='coerce').sum(),
+    'Outras': lambda x: pd.to_numeric(x, errors='coerce').sum(),
+    'Total': lambda x: pd.to_numeric(x, errors='coerce').sum()
+}).reset_index()
+
+# Vistorias DETRAN - agrupar por município
+vistoria_grouped = vistoria_df_24.groupby('Id_Município').agg({
+    'Município': 'first',
+    'Vistoria Lacrada Veículo 4 Rodas Até 16 Lugares ou Maior 3,5T': lambda x: pd.to_numeric(x, errors='coerce').sum(),
+    'Vistoria Lacrada Veículo Carga PBT Mais 3,5T': lambda x: pd.to_numeric(x, errors='coerce').sum(),
+    'Vistoria Lacrada Veículo Combinado Veículo P/Unidade': lambda x: pd.to_numeric(x, errors='coerce').sum(),
+    'Vistoria Lacrada Veículo Passageiro com Lotação Acima de 16 Lugares': lambda x: pd.to_numeric(x, errors='coerce').sum(),
+    'Vistoria Lacrada Veículo 2 ou 3 Rodas': lambda x: pd.to_numeric(x, errors='coerce').sum(),
+    'Vistoria RENAVE de Veículo 4 Rodas 16 Lugares ou Até 3,5 Ton': lambda x: pd.to_numeric(x, errors='coerce').sum(),
+    'Vistoria RENAVE de Veículos de 2 e 3 Rodas': lambda x: pd.to_numeric(x, errors='coerce').sum(),
+    'Vistoria Veículo Carga com PBT Acima de 3,5T': lambda x: pd.to_numeric(x, errors='coerce').sum(),
+    'Vistoria Veicular de Combinações de Veículos por Unidade': lambda x: pd.to_numeric(x, errors='coerce').sum(),
+    'Vistoria Veículo 2 ou 3 Rodas': lambda x: pd.to_numeric(x, errors='coerce').sum(),
+    'Vistoria Veículo 4 Rodas Até 16 Lugares ou Até 3,5 Ton': lambda x: pd.to_numeric(x, errors='coerce').sum(),
+    'Vistoria Veículo Passageiros com Capacidade Acima de 16 Lugares': lambda x: pd.to_numeric(x, errors='coerce').sum(),
+    'Outras': lambda x: pd.to_numeric(x, errors='coerce').sum(),
+    'Total': lambda x: pd.to_numeric(x, errors='coerce').sum()
+}).reset_index()
+
+# Pátios - agrupar por município
+patio_grouped = patio_df_24.groupby('Id_Município').agg({
+    'Município': 'first',
+    'Veículos removidos': lambda x: pd.to_numeric(x, errors='coerce').sum(),
+    'Total': lambda x: pd.to_numeric(x, errors='coerce').sum()
+}).reset_index()
 
 # Garantir que Id_Município seja string em todos os dataframes
-# for df in [cfc_grouped, clinicas_grouped, frota_grouped, epiv_grouped, ecv_grouped, vistoria_grouped, patio_grouped]:
-#     df['Id_Município'] = df['Id_Município'].astype(str) # This is now handled within each respective get_*_grouped function
-
+for df in [cfc_grouped, clinicas_grouped, frota_grouped, epiv_grouped, ecv_grouped, vistoria_grouped, patio_grouped]:
+    df['Id_Município'] = df['Id_Município'].astype(str)
 
 # Load GeoJSON data
-# with open('data/geo-ba.json', 'r', encoding='utf-8') as f: # Original lines
-#     geojson_data = json.load(f) # Handled by cached function
+with open('data/geo-ba.json', 'r', encoding='utf-8') as f:
+    geojson_data = json.load(f)
 
 # Create the base map centered on Bahia
 m = folium.Map(
@@ -919,8 +796,8 @@ st.markdown("""
 """, unsafe_allow_html=True)
 
 # Carregar dados dos CSVs de credenciados
-# credenciados_cfc_df = pd.read_csv('data/CredenciadosCFC.csv', header=None, names=['Nome', 'Município']) # Handled by cache
-# credenciados_clinica_df = pd.read_csv('data/CredenciadosClinica.csv', header=None, names=['Nome', 'Município']) # Handled by cache
+credenciados_cfc_df = pd.read_csv('data/CredenciadosCFC.csv', header=None, names=['Nome', 'Município'])
+credenciados_clinica_df = pd.read_csv('data/CredenciadosClinica.csv', header=None, names=['Nome', 'Município'])
 
 # Add multi-select for municipalities
 municipios = sorted(frota_grouped['Município'].unique())
@@ -1083,50 +960,36 @@ def normaliza_nome(nome):
     
     return base_normalized
 
-# --- Cached Credenciados Count DataFrames ---
-@st.cache_data
-def get_cfc_credenciados(_cfc_df_24):
-    return _cfc_df_24.groupby('Id_Município CFC').agg(
-        {'Município CFC': 'first', 'CNPJ': 'nunique'}
-    ).reset_index().rename(columns={'Id_Município CFC': 'Id_Município', 'Município CFC': 'Município', 'CNPJ': 'Total'})
+# Create dataframes for number of accredited service providers
+cfc_credenciados = cfc_df_24.groupby('Id_Município CFC').agg({
+    'Município CFC': 'first',
+    'CNPJ': 'nunique'
+}).reset_index().rename(columns={'Id_Município CFC': 'Id_Município', 'Município CFC': 'Município', 'CNPJ': 'Total'})
 
-@st.cache_data
-def get_clinicas_credenciadas(_clinicas_df_24):
-    return _clinicas_df_24.groupby('Id_Município Clínica').agg(
-        {'Município Clínica': 'first', 'CNPJ': 'nunique'}
-    ).reset_index().rename(columns={'Id_Município Clínica': 'Id_Município', 'Município Clínica': 'Município', 'CNPJ': 'Total'})
+clinicas_credenciadas = clinicas_df_24.groupby('Id_Município Clínica').agg({
+    'Município Clínica': 'first',
+    'CNPJ': 'nunique'
+}).reset_index().rename(columns={'Id_Município Clínica': 'Id_Município', 'Município Clínica': 'Município', 'CNPJ': 'Total'})
 
-@st.cache_data
-def get_epiv_credenciados(_epiv_df_24):
-    return _epiv_df_24.groupby('Id_Município').agg(
-        {'Município': 'first', 'CNPJ': 'nunique'}
-    ).reset_index().rename(columns={'CNPJ': 'Total'})
+epiv_credenciados = epiv_df_24.groupby('Id_Município').agg({
+    'Município': 'first',
+    'CNPJ': 'nunique'
+}).reset_index().rename(columns={'CNPJ': 'Total'})
 
-@st.cache_data
-def get_ecv_credenciados(_ecv_df_24):
-    return _ecv_df_24.groupby('Id_Município').agg(
-        {'Município': 'first', 'CNPJ': 'nunique'}
-    ).reset_index().rename(columns={'CNPJ': 'Total'})
+ecv_credenciados = ecv_df_24.groupby('Id_Município').agg({
+    'Município': 'first',
+    'CNPJ': 'nunique'
+}).reset_index().rename(columns={'CNPJ': 'Total'})
 
-@st.cache_data
-def get_vistoria_credenciados(_vistoria_df_24):
-    return _vistoria_df_24.groupby('Id_Município').agg(
-        {'Município': 'first', 'CNPJ': 'nunique'}
-    ).reset_index().rename(columns={'CNPJ': 'Total'})
+vistoria_credenciados = vistoria_df_24.groupby('Id_Município').agg({
+    'Município': 'first',
+    'CNPJ': 'nunique'
+}).reset_index().rename(columns={'CNPJ': 'Total'})
 
-@st.cache_data
-def get_patio_credenciados(_patio_df_24):
-    return _patio_df_24.groupby('Id_Município').agg(
-        {'Município': 'first', 'CNPJ': 'nunique'}
-    ).reset_index().rename(columns={'CNPJ': 'Total'})
-
-cfc_credenciados = get_cfc_credenciados(cfc_df_24)
-clinicas_credenciadas = get_clinicas_credenciadas(clinicas_df_24)
-epiv_credenciados = get_epiv_credenciados(epiv_df_24)
-ecv_credenciados = get_ecv_credenciados(ecv_df_24)
-vistoria_credenciados = get_vistoria_credenciados(vistoria_df_24)
-patio_credenciados = get_patio_credenciados(patio_df_24)
-# --- End of Cached Credenciados Count DataFrames ---
+patio_credenciados = patio_df_24.groupby('Id_Município').agg({
+    'Município': 'first',
+    'CNPJ': 'nunique'
+}).reset_index().rename(columns={'CNPJ': 'Total'})
 
 # Function to create a comprehensive popup HTML for a municipality
 def criar_popup_detalhado(municipio_nome):
@@ -2231,13 +2094,13 @@ def create_choropleth(data_df, title):
 if tipo_mapa == 'Mapa de Regiões':
     # Criar um dicionário para mapear municípios para regiões
     municipio_para_regiao = {}
-    for regiao, municipios_regiao in regioes_ba.items(): # Renamed 'municipios' to 'municipios_regiao'
-        for municipio_item in municipios_regiao: # Renamed 'municipio' to 'municipio_item'
+    for regiao, municipios in regioes_ba.items():
+        for municipio in municipios:
             # Normalizar o nome para garantir correspondência consistente
-            municipio_norm = normaliza_nome(municipio_item)
+            municipio_norm = normaliza_nome(municipio)
             municipio_para_regiao[municipio_norm] = regiao
             # Também armazenar a versão original para backup
-            municipio_para_regiao[municipio_item] = regiao
+            municipio_para_regiao[municipio] = regiao
 
     # Adicionar a coluna de região ao DataFrame
     frota_grouped['Regiao'] = frota_grouped['Município'].apply(
@@ -2246,10 +2109,9 @@ if tipo_mapa == 'Mapa de Regiões':
     )
 
     # Special handling for Dias d'Ávila
-    dias_avila_mask_frota = frota_grouped['Município'].apply(lambda x: 'DIAS' in str(x).upper() and ('AVILA' in str(x).upper() or 'ÁVILA' in str(x).upper())) # Unique mask name
-    if dias_avila_mask_frota.any(): # Use unique mask name
-        frota_grouped.loc[dias_avila_mask_frota, 'Regiao'] = 'Regiâo Metropolitana de Salvador'
-
+    dias_avila_mask = frota_grouped['Município'].apply(lambda x: 'DIAS' in x.upper() and ('AVILA' in x.upper() or 'ÁVILA' in x.upper()))
+    if dias_avila_mask.any():
+        frota_grouped.loc[dias_avila_mask, 'Regiao'] = 'Regiâo Metropolitana de Salvador'
 
     # Agrupar por região
     regioes_grouped = frota_grouped.groupby('Regiao').agg({
@@ -2273,22 +2135,9 @@ if tipo_mapa == 'Mapa de Regiões':
     vis_label_prefix = 'Valor' # Default label
     vis_data_dict = {}
 
-    # Prepare a version of populacao_df_for_regions specifically for Visão Geral in Region Map
-    # to ensure it has a 'Município' column as expected by downstream logic.
-    populacao_df_for_regions_visao_geral = populacao_df_for_regions.copy()
-    if 'Município_POP' in populacao_df_for_regions_visao_geral.columns:
-        populacao_df_for_regions_visao_geral = populacao_df_for_regions_visao_geral.rename(columns={'Município_POP': 'Município'})
-    # Ensure it still has 'Total' for population and 'Id_Município'
-    if 'Total' not in populacao_df_for_regions_visao_geral.columns and 'População' in populacao_df_for_regions_visao_geral.columns:
-         populacao_df_for_regions_visao_geral = populacao_df_for_regions_visao_geral.rename(columns={'População': 'Total'})
-    elif 'Total' not in populacao_df_for_regions_visao_geral.columns and 'População' not in populacao_df_for_regions_visao_geral.columns:
-        # If neither 'Total' nor 'População' exists, this df is not usable for population, create a dummy 'Total'
-        # This case should ideally not happen if load_populacao_df is correct
-        populacao_df_for_regions_visao_geral['Total'] = 0 
-
     # Map visualization selection to the correct dataframe and label
     vis_mapping = {
-        'Visão Geral': (populacao_df_for_regions_visao_geral, 'População'), 
+        'Visão Geral': (populacao_df, 'População'),
         'Frota de Veículos': (frota_grouped, 'Total Veículos'),
         'CFCs': (cfc_grouped, 'Serviços CFCs'),
         'Clínicas': (clinicas_grouped, 'Exames Clínicas'),
@@ -2306,31 +2155,43 @@ if tipo_mapa == 'Mapa de Regiões':
 
     if visualization in vis_mapping:
         vis_df, vis_label_prefix = vis_mapping[visualization]
-        if vis_df is not None and 'Município' in vis_df.columns and vis_value_col in vis_df.columns:
+        
+        # Determine the correct column names based on the specific DataFrame
+        actual_municipio_column_name = 'Município_POP' if vis_df is populacao_df else 'Município'
+        actual_value_column_name = 'Total' # Consistent for all vis_mapping due to prior renaming or structure
+        
+        # Check if the dataframe and necessary columns exist
+        if vis_df is not None and \
+           actual_municipio_column_name in vis_df.columns and \
+           actual_value_column_name in vis_df.columns:
+            
             # Ensure Id_Município is string for potential future use, though we key by name here
-            vis_df_copy = vis_df.copy() # Work on a copy
-            vis_df_copy['Id_Município'] = vis_df_copy['Id_Município'].astype(str)
+            if 'Id_Município' in vis_df.columns:
+                 vis_df['Id_Município'] = vis_df['Id_Município'].astype(str)
             
-            # Fix Dias d'Ávila in the visualization dataframe
-            dias_avila_mask_vis = vis_df_copy['Município'].apply(lambda x: 'DIAS' in str(x).upper() and ('AVILA' in str(x).upper() or 'ÁVILA' in str(x).upper())) # Unique mask name
-            if dias_avila_mask_vis.any(): # Use unique mask name
-                vis_df_copy.loc[dias_avila_mask_vis, 'Município'] = "DIAS D'ÁVILA"
+            # Fix Dias d'Ávila in the visualization dataframe using the correct column
+            dias_avila_mask = vis_df[actual_municipio_column_name].apply(lambda x: 'DIAS' in str(x).upper() and ('AVILA' in str(x).upper() or 'ÁVILA' in str(x).upper()))
+            if dias_avila_mask.any():
+                vis_df.loc[dias_avila_mask, actual_municipio_column_name] = "DIAS D'ÁVILA"
             
-            # Create dict mapping normalized name to the value
-            vis_data_dict = vis_df_copy.set_index(vis_df_copy['Município'].apply(normaliza_nome))[vis_value_col].to_dict()
+            # Create dict mapping normalized name to the value, using correct columns
+            vis_data_dict = vis_df.set_index(
+                vis_df[actual_municipio_column_name].apply(normaliza_nome)
+            )[actual_value_column_name].to_dict()
             
             # Also add a special key for Dias d'Ávila to ensure it's found
-            dias_davila_data = vis_df_copy[vis_df_copy['Município'].apply(lambda x: 'DIAS' in str(x).upper() and ('AVILA' in str(x).upper() or 'ÁVILA' in str(x).upper()))]
+            dias_davila_data = vis_df[
+                vis_df[actual_municipio_column_name].apply(lambda x: 'DIAS' in str(x).upper() and ('AVILA' in str(x).upper() or 'ÁVILA' in str(x).upper()))
+            ]
             if not dias_davila_data.empty:
+                dias_davila_value = dias_davila_data[actual_value_column_name].iloc[0]
                 # Add multiple variations of the name for lookup
-                dias_davila_value = dias_davila_data[vis_value_col].iloc[0]
                 vis_data_dict['dias davila'] = dias_davila_value
                 vis_data_dict['dias d avila'] = dias_davila_value
-                # vis_data_dict['dias davila'] = dias_davila_data[vis_value_col].iloc[0] # Duplicate key
                 vis_data_dict["dias d'avila"] = dias_davila_value
         else:
             # Handle cases where the expected columns aren't present or df is None
-            st.warning(f"Dados para '{visualization}' não puderam ser carregados corretamente para o tooltip.")
+            st.warning(f"Dados para '{visualization}' não puderam ser carregados corretamente para o tooltip. Verifique as colunas esperadas: '{actual_municipio_column_name}' e '{actual_value_column_name}' no DataFrame correspondente.")
 
     # --- Add region, color, and custom tooltip HTML to GeoJSON ---
     for feature in geojson_data['features']:
@@ -2352,39 +2213,47 @@ if tipo_mapa == 'Mapa de Regiões':
         feature['properties']['regiao'] = regiao
         feature['properties']['cor'] = cor
 
-        # --- Tooltip HTML Construction ---
+        # Get visualization value with special handling for Dias d'Ávila
+        vis_value = 'N/A'
+        if 'DIAS' in municipio_upper and ('AVILA' in municipio_upper or 'ÁVILA' in municipio_upper):
+            # Try multiple key variants for Dias d'Ávila
+            for key in ['dias davila', 'dias d avila', "dias d'avila"]:
+                if key in vis_data_dict:
+                    vis_value = vis_data_dict[key]
+                    break
+        else:
+            vis_value = vis_data_dict.get(municipio_norm, 'N/A')
+        
+        # Format numeric values
+        if isinstance(vis_value, (int, float, np.number)):
+            vis_value_formatted = f"{vis_value:,.0f}"
+        else:
+            vis_value_formatted = str(vis_value) # Keep as string if N/A or other non-numeric
+
+        # Construct tooltip HTML
+        # Get population data safely using the GeoJSON municipality ID
+        current_mun_id_geojson = str(feature['properties']['id'])
+        pop_data_series = populacao_df.loc[populacao_df['Id_Município'] == current_mun_id_geojson, 'Total']
+        
+        populacao_display_string = "N/A" # Default if not found or NaN
+        if not pop_data_series.empty:
+            pop_value = pop_data_series.iloc[0]
+            if pd.notna(pop_value):
+                populacao_display_string = f"{pop_value:,.0f}"
+
         tooltip_html = f"""<div style='line-height: 1.5;'>
             <strong>Município:</strong> {municipio_nome_geojson}<br>
-            <strong>Região:</strong> {regiao}<br>"""
+            <strong>Região:</strong> {regiao}<br>
+            <strong>População:</strong> {populacao_display_string}""" # No <br> here initially
 
-        if visualization == 'Visão Geral':
-            # Get population data for Visão Geral tooltip
-            current_mun_id_geojson_for_pop = str(feature['properties']['id'])
-            pop_data_series_for_tooltip = populacao_df_for_regions.loc[populacao_df_for_regions['Id_Município'] == current_mun_id_geojson_for_pop, 'Total']
-            populacao_display_tooltip = "N/A"
-            if not pop_data_series_for_tooltip.empty:
-                pop_value_tooltip = pop_data_series_for_tooltip.iloc[0]
-                if pd.notna(pop_value_tooltip):
-                    populacao_display_tooltip = f"{pop_value_tooltip:,.0f}"
-            tooltip_html += f"<strong>População:</strong> {populacao_display_tooltip}"
-        else:
-            # Get visualization value for other selections
-            vis_value_tooltip = 'N/A'
-            dias_avila_norm_keys = ['dias davila', 'dias d avila', "dias d'avila"]
-            found_dias_avila_tooltip = False
-            if municipio_norm in dias_avila_norm_keys:
-                for key_da_tooltip in dias_avila_norm_keys:
-                    if key_da_tooltip in vis_data_dict:
-                        vis_value_tooltip = vis_data_dict[key_da_tooltip]
-                        found_dias_avila_tooltip = True
-                        break
-            if not found_dias_avila_tooltip:
-                vis_value_tooltip = vis_data_dict.get(municipio_norm, 'N/A')
-                
-            vis_value_formatted_tooltip = f"{vis_value_tooltip:,.0f}" if isinstance(vis_value_tooltip, (int, float, np.number)) else str(vis_value_tooltip)
-            tooltip_html += f"<strong>{vis_label_prefix}:</strong> {vis_value_formatted_tooltip}"
+        # Only add the visualization-specific line if the visualization is NOT 'Visão Geral'
+        # for the region map, because 'Visão Geral' for region map statistics already implies population,
+        # and we have a dedicated population line above.
+        if visualization != 'Visão Geral':
+            tooltip_html += f"""<br>
+            <strong>{vis_label_prefix}:</strong> {vis_value_formatted}"""
         
-        tooltip_html += "</div>"
+        tooltip_html += "</div>" # Close the div
         feature['properties']['tooltip_html'] = tooltip_html
 
     # --- Create GeoJSON layer with regions and custom tooltip ---
@@ -2591,12 +2460,8 @@ if tipo_mapa == 'Mapa de Regiões':
             ).add_to(m)
 
 elif visualization == 'Visão Geral':
-    # For comprehensive view, use populacao_df (which is populacao_df_loaded.copy())
-    # Rename 'População' to 'Total' for create_choropleth's internal consistency
-    populacao_df_visao_geral = populacao_df.copy() # populacao_df is already a copy of loaded data
-    populacao_df_visao_geral = populacao_df_visao_geral.rename(columns={'População': 'Total'})
-    # The title for the choropleth layer and tooltip should be 'População'
-    create_choropleth(populacao_df_visao_geral, 'População')
+    # For comprehensive view, use frota_grouped as a base for the choropleth
+    create_choropleth(populacao_df, 'Total')
 elif visualization == 'Frota de Veículos':
     # create_choropleth will use the global `municipios_selecionados` which may have been overridden by CFC/Clinic filters.
     create_choropleth(frota_grouped, 'Total de Veículos')
@@ -2629,67 +2494,37 @@ elif visualization == 'Quantidade de Pátios':
 map_html = m._repr_html_()
 components.html(map_html, width=iframe_width, height=iframe_height, scrolling=False)
 
-# Only show this info message if it's the Standard Map and Visão Geral is selected
-if tipo_mapa == 'Mapa Padrão' and visualization == 'Visão Geral':
-    st.info("Clique em um município no mapa para ver todos os dados detalhados no popup.")
-
 # Show regional statistics AFTER the map if the region map is selected
 if tipo_mapa == 'Mapa de Regiões':
-    st.subheader(f'Estatísticas por Região ({vis_label_prefix})')
+    # Adicionar estatísticas das regiões
+    st.subheader('Estatísticas por Região')
 
-    stats_regioes_df = pd.DataFrame() # Initialize an empty DataFrame
+    # Calcular estatísticas por região
+    stats_regioes = frota_grouped.groupby('Regiao').agg({
+        'Total': ['sum', 'mean', 'count']
+    }).round(2)
+    stats_regioes.columns = ['Total de Veículos', 'Média por Município', 'Número de Municípios']
+    stats_regioes = stats_regioes.reset_index()
 
-    if vis_df is not None and 'Município' in vis_df.columns and 'Total' in vis_df.columns:
-        stats_calc_df = vis_df.copy()
-        stats_calc_df['Regiao'] = stats_calc_df['Município'].apply(
-            lambda x: municipio_para_regiao.get(normaliza_nome(str(x)), # Ensure x is string for normaliza_nome
-                   municipio_para_regiao.get(str(x).upper(), 'Não classificado'))
-        )
-        
-        # Correct Dias d'Ávila region assignment in stats_calc_df
-        dias_avila_mask_stats = stats_calc_df['Município'].apply(lambda x: 'DIAS' in str(x).upper() and ('AVILA' in str(x).upper() or 'ÁVILA' in str(x).upper()))
-        if dias_avila_mask_stats.any():
-            stats_calc_df.loc[dias_avila_mask_stats, 'Regiao'] = 'Regiâo Metropolitana de Salvador'
-
-        stats_calc_df_filtered = stats_calc_df[stats_calc_df['Regiao'] != 'Não classificado']
-
-        if not stats_calc_df_filtered.empty:
-            grouped_by_region = stats_calc_df_filtered.groupby('Regiao')
-            
-            sum_data = grouped_by_region['Total'].sum()
-            
-            # Calculate mean only for municipalities with 'Total' > 0
-            mean_data = stats_calc_df_filtered[stats_calc_df_filtered['Total'] > 0].groupby('Regiao')['Total'].mean()
-            
-            count_municipalities_with_data = grouped_by_region['Município'].nunique()
-
-            stats_regioes_df = pd.DataFrame(index=sum_data.index)
-            stats_regioes_df[f'Total {vis_label_prefix}'] = sum_data
-            stats_regioes_df[f'Média {vis_label_prefix} por Município (dados > 0)'] = mean_data
-            stats_regioes_df['Número de Municípios com Dados'] = count_municipalities_with_data
-            stats_regioes_df = stats_regioes_df.fillna(0).reset_index() # Fill NaN means with 0 and reset index
-    
-    if not stats_regioes_df.empty:
-        cols = st.columns(3)
-        for i, row in stats_regioes_df.iterrows():
-            col_idx = i % 3
-            with cols[col_idx]:
-                st.markdown(f"**{row['Regiao']}**")
-                st.write(f"Total {vis_label_prefix}: {row[f'Total {vis_label_prefix}']:,.0f}")
-                st.write(f"Média por Município (dados > 0): {row[f'Média {vis_label_prefix} por Município (dados > 0)']:,.2f}")
-                st.write(f"Municípios com Dados: {row['Número de Municípios com Dados']:,.0f}")
-                st.write("---")
-    else:
-        st.write("Estatísticas regionais não disponíveis para a visualização selecionada ou não há dados para exibir.")
+    # Exibir estatísticas em colunas
+    cols = st.columns(3)
+    for i, regiao in enumerate(stats_regioes['Regiao']):
+        col_idx = i % 3
+        with cols[col_idx]:
+            st.markdown(f"**{regiao}**")
+            st.write(f"Total de Veículos: {stats_regioes.loc[i, 'Total de Veículos']:,.0f}")
+            st.write(f"Média por Município: {stats_regioes.loc[i, 'Média por Município']:,.0f}")
+            st.write(f"Número de Municípios: {stats_regioes.loc[i, 'Número de Municípios']:,.0f}")
+            st.write("---")
 
 st.markdown(
     '''
     <style>
     iframe {
-        height: 800px !important; /* Adjusted height */
+        height: 1200px !important;
         width: 100% !important;
         max-width: none !important;
-        padding: 0px !important; /* Adjusted padding */
+        padding: 20px !important;
         box-sizing: border-box !important;
         overflow: hidden !important;
     }
@@ -2715,7 +2550,7 @@ st.markdown(
         margin: 0 auto !important;
         padding-left: 2.5% !important;
         padding-right: 2.5% !important;
-        padding-top: 10px !important;
+        padding-top: 60px !important;
         padding-bottom: 20px !important;
         overflow-x: hidden !important;
     }
@@ -2762,7 +2597,7 @@ if visualization == 'Visão Geral':
         st.metric('Total de Veículos (Frota)', f"{frota_df_24['Total'].apply(pd.to_numeric, errors='coerce').sum():,.0f}")
         st.metric('Serviços CFCs', f"{cfc_grouped['Total'].apply(pd.to_numeric, errors='coerce').sum():,.0f}")
         st.metric('CFCs Credenciados', f"{cfc_credenciados['Total'].apply(pd.to_numeric, errors='coerce').sum():,.0f}")
-        st.metric('População Total (Estado)', f"{populacao_df_for_regions['Total'].sum():,.0f}")
+        st.metric('População Total (Estado)', f"{populacao_df['Total'].sum():,.0f}")
         
     with col2:
         st.metric('Exames Clínicas', f"{clinicas_grouped['Total'].apply(pd.to_numeric, errors='coerce').sum():,.0f}")
@@ -2779,7 +2614,10 @@ if visualization == 'Visão Geral':
         st.metric('Vist. DETRAN Cred.', f"{vistoria_df_24['CNPJ'].nunique():,.0f}") # Correctly count unique CNPJs from the original dataframe
         st.metric('Veículos Removidos (Pátios)', f"{patio_grouped['Total'].apply(pd.to_numeric, errors='coerce').sum():,.0f}")
         st.metric('Pátios Credenciados', f"{patio_credenciados['Total'].apply(pd.to_numeric, errors='coerce').sum():,.0f}")
-        
+
+    # Only show the detailed popup instruction if it's Visão Geral on the Standard Map
+    if visualization == 'Visão Geral' and tipo_mapa == 'Mapa Padrão':
+        st.info("Clique em um município no mapa para ver todos os dados detalhados no popup.")
 elif visualization == 'Frota de Veículos':
     tipos_veiculos = [
         'Automóvel', 'Moto', 'Caminhão', 'Caminhonete', 'Microonibus',

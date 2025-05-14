@@ -2725,7 +2725,7 @@ if visualization == 'Visão Geral':
         st.metric('Total de Veículos (Frota)', f"{frota_df_24['Total'].apply(pd.to_numeric, errors='coerce').sum():,.0f}")
         st.metric('Serviços CFCs', f"{cfc_grouped['Total'].apply(pd.to_numeric, errors='coerce').sum():,.0f}")
         st.metric('CFCs Credenciados', f"{cfc_credenciados['Total'].apply(pd.to_numeric, errors='coerce').sum():,.0f}")
-        st.metric('População Total (Estado)', f"{populacao_df['Total'].sum():,.0f}")
+        st.metric('População Total (Estado)', f"{populacao_df_for_regions['Total'].sum():,.0f}")
         
     with col2:
         st.metric('Exames Clínicas', f"{clinicas_grouped['Total'].apply(pd.to_numeric, errors='coerce').sum():,.0f}")

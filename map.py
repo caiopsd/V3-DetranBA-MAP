@@ -893,7 +893,7 @@ m.fit_bounds([[bounds[1], bounds[0]], [bounds[3], bounds[2]]])
 # Calcule a proporção do shape da Bahia
 aspect_ratio = (bounds[2] - bounds[0]) / (bounds[3] - bounds[1])
 iframe_width = 2000
-iframe_height = 1200
+iframe_height = 800
 
 # Add title and description
 st.title('Mapa Interativo do DETRAN-BA')
@@ -2273,9 +2273,22 @@ if tipo_mapa == 'Mapa de Regiões':
     vis_label_prefix = 'Valor' # Default label
     vis_data_dict = {}
 
+    # Prepare a version of populacao_df_for_regions specifically for Visão Geral in Region Map
+    # to ensure it has a 'Município' column as expected by downstream logic.
+    populacao_df_for_regions_visao_geral = populacao_df_for_regions.copy()
+    if 'Município_POP' in populacao_df_for_regions_visao_geral.columns:
+        populacao_df_for_regions_visao_geral = populacao_df_for_regions_visao_geral.rename(columns={'Município_POP': 'Município'})
+    # Ensure it still has 'Total' for population and 'Id_Município'
+    if 'Total' not in populacao_df_for_regions_visao_geral.columns and 'População' in populacao_df_for_regions_visao_geral.columns:
+         populacao_df_for_regions_visao_geral = populacao_df_for_regions_visao_geral.rename(columns={'População': 'Total'})
+    elif 'Total' not in populacao_df_for_regions_visao_geral.columns and 'População' not in populacao_df_for_regions_visao_geral.columns:
+        # If neither 'Total' nor 'População' exists, this df is not usable for population, create a dummy 'Total'
+        # This case should ideally not happen if load_populacao_df is correct
+        populacao_df_for_regions_visao_geral['Total'] = 0 
+
     # Map visualization selection to the correct dataframe and label
     vis_mapping = {
-        'Visão Geral': (populacao_df_for_regions, 'População'), # Use populacao_df_for_regions which has 'Total' as population
+        'Visão Geral': (populacao_df_for_regions_visao_geral, 'População'), 
         'Frota de Veículos': (frota_grouped, 'Total Veículos'),
         'CFCs': (cfc_grouped, 'Serviços CFCs'),
         'Clínicas': (clinicas_grouped, 'Exames Clínicas'),
@@ -2339,45 +2352,39 @@ if tipo_mapa == 'Mapa de Regiões':
         feature['properties']['regiao'] = regiao
         feature['properties']['cor'] = cor
 
-        # Get visualization value with special handling for Dias d'Ávila
-        vis_value = 'N/A'
-        # Try normalized GeoJSON name first for Dias d'Ávila, then specific variations
-        dias_avila_norm_keys = ['dias davila', 'dias d avila', "dias d'avila"]
-        found_dias_avila = False
-        if municipio_norm in dias_avila_norm_keys: # Check if the current feature is Dias d'Avila
-            for key_da in dias_avila_norm_keys:
-                 if key_da in vis_data_dict:
-                    vis_value = vis_data_dict[key_da]
-                    found_dias_avila = True
-                    break
-        
-        if not found_dias_avila: # If not Dias d'Avila or not found through special keys
-            vis_value = vis_data_dict.get(municipio_norm, 'N/A')
-
-        # Format numeric values
-        if isinstance(vis_value, (int, float, np.number)):
-            vis_value_formatted = f"{vis_value:,.0f}"
-        else:
-            vis_value_formatted = str(vis_value) # Keep as string if N/A or other non-numeric
-
-        # Construct tooltip HTML
-        # Get population data safely using the GeoJSON municipality ID
-        current_mun_id_geojson = str(feature['properties']['id'])
-        # Use populacao_df_for_regions for consistency in "Mapa de Regiões" tooltip for population
-        pop_data_series = populacao_df_for_regions.loc[populacao_df_for_regions['Id_Município'] == current_mun_id_geojson, 'Total'] # 'Total' is População here
-        
-        populacao_display_string = "N/A" # Default if not found or NaN
-        if not pop_data_series.empty:
-            pop_value_lookup = pop_data_series.iloc[0]
-            if pd.notna(pop_value_lookup):
-                populacao_display_string = f"{pop_value_lookup:,.0f}"
-
+        # --- Tooltip HTML Construction ---
         tooltip_html = f"""<div style='line-height: 1.5;'>
             <strong>Município:</strong> {municipio_nome_geojson}<br>
-            <strong>Região:</strong> {regiao}<br>
-            <strong>População:</strong> {populacao_display_string}<br>
-            <strong>{vis_label_prefix}:</strong> {vis_value_formatted}
-        </div>"""
+            <strong>Região:</strong> {regiao}<br>"""
+
+        if visualization == 'Visão Geral':
+            # Get population data for Visão Geral tooltip
+            current_mun_id_geojson_for_pop = str(feature['properties']['id'])
+            pop_data_series_for_tooltip = populacao_df_for_regions.loc[populacao_df_for_regions['Id_Município'] == current_mun_id_geojson_for_pop, 'Total']
+            populacao_display_tooltip = "N/A"
+            if not pop_data_series_for_tooltip.empty:
+                pop_value_tooltip = pop_data_series_for_tooltip.iloc[0]
+                if pd.notna(pop_value_tooltip):
+                    populacao_display_tooltip = f"{pop_value_tooltip:,.0f}"
+            tooltip_html += f"<strong>População:</strong> {populacao_display_tooltip}"
+        else:
+            # Get visualization value for other selections
+            vis_value_tooltip = 'N/A'
+            dias_avila_norm_keys = ['dias davila', 'dias d avila', "dias d'avila"]
+            found_dias_avila_tooltip = False
+            if municipio_norm in dias_avila_norm_keys:
+                for key_da_tooltip in dias_avila_norm_keys:
+                    if key_da_tooltip in vis_data_dict:
+                        vis_value_tooltip = vis_data_dict[key_da_tooltip]
+                        found_dias_avila_tooltip = True
+                        break
+            if not found_dias_avila_tooltip:
+                vis_value_tooltip = vis_data_dict.get(municipio_norm, 'N/A')
+                
+            vis_value_formatted_tooltip = f"{vis_value_tooltip:,.0f}" if isinstance(vis_value_tooltip, (int, float, np.number)) else str(vis_value_tooltip)
+            tooltip_html += f"<strong>{vis_label_prefix}:</strong> {vis_value_formatted_tooltip}"
+        
+        tooltip_html += "</div>"
         feature['properties']['tooltip_html'] = tooltip_html
 
     # --- Create GeoJSON layer with regions and custom tooltip ---
@@ -2622,37 +2629,67 @@ elif visualization == 'Quantidade de Pátios':
 map_html = m._repr_html_()
 components.html(map_html, width=iframe_width, height=iframe_height, scrolling=False)
 
+# Only show this info message if it's the Standard Map and Visão Geral is selected
+if tipo_mapa == 'Mapa Padrão' and visualization == 'Visão Geral':
+    st.info("Clique em um município no mapa para ver todos os dados detalhados no popup.")
+
 # Show regional statistics AFTER the map if the region map is selected
 if tipo_mapa == 'Mapa de Regiões':
-    # Adicionar estatísticas das regiões
-    st.subheader('Estatísticas por Região')
+    st.subheader(f'Estatísticas por Região ({vis_label_prefix})')
 
-    # Calcular estatísticas por região
-    stats_regioes = frota_grouped.groupby('Regiao').agg({
-        'Total': ['sum', 'mean', 'count']
-    }).round(2)
-    stats_regioes.columns = ['Total de Veículos', 'Média por Município', 'Número de Municípios']
-    stats_regioes = stats_regioes.reset_index()
+    stats_regioes_df = pd.DataFrame() # Initialize an empty DataFrame
 
-    # Exibir estatísticas em colunas
-    cols = st.columns(3)
-    for i, regiao in enumerate(stats_regioes['Regiao']):
-        col_idx = i % 3
-        with cols[col_idx]:
-            st.markdown(f"**{regiao}**")
-            st.write(f"Total de Veículos: {stats_regioes.loc[i, 'Total de Veículos']:,.0f}")
-            st.write(f"Média por Município: {stats_regioes.loc[i, 'Média por Município']:,.0f}")
-            st.write(f"Número de Municípios: {stats_regioes.loc[i, 'Número de Municípios']:,.0f}")
-            st.write("---")
+    if vis_df is not None and 'Município' in vis_df.columns and 'Total' in vis_df.columns:
+        stats_calc_df = vis_df.copy()
+        stats_calc_df['Regiao'] = stats_calc_df['Município'].apply(
+            lambda x: municipio_para_regiao.get(normaliza_nome(str(x)), # Ensure x is string for normaliza_nome
+                   municipio_para_regiao.get(str(x).upper(), 'Não classificado'))
+        )
+        
+        # Correct Dias d'Ávila region assignment in stats_calc_df
+        dias_avila_mask_stats = stats_calc_df['Município'].apply(lambda x: 'DIAS' in str(x).upper() and ('AVILA' in str(x).upper() or 'ÁVILA' in str(x).upper()))
+        if dias_avila_mask_stats.any():
+            stats_calc_df.loc[dias_avila_mask_stats, 'Regiao'] = 'Regiâo Metropolitana de Salvador'
+
+        stats_calc_df_filtered = stats_calc_df[stats_calc_df['Regiao'] != 'Não classificado']
+
+        if not stats_calc_df_filtered.empty:
+            grouped_by_region = stats_calc_df_filtered.groupby('Regiao')
+            
+            sum_data = grouped_by_region['Total'].sum()
+            
+            # Calculate mean only for municipalities with 'Total' > 0
+            mean_data = stats_calc_df_filtered[stats_calc_df_filtered['Total'] > 0].groupby('Regiao')['Total'].mean()
+            
+            count_municipalities_with_data = grouped_by_region['Município'].nunique()
+
+            stats_regioes_df = pd.DataFrame(index=sum_data.index)
+            stats_regioes_df[f'Total {vis_label_prefix}'] = sum_data
+            stats_regioes_df[f'Média {vis_label_prefix} por Município (dados > 0)'] = mean_data
+            stats_regioes_df['Número de Municípios com Dados'] = count_municipalities_with_data
+            stats_regioes_df = stats_regioes_df.fillna(0).reset_index() # Fill NaN means with 0 and reset index
+    
+    if not stats_regioes_df.empty:
+        cols = st.columns(3)
+        for i, row in stats_regioes_df.iterrows():
+            col_idx = i % 3
+            with cols[col_idx]:
+                st.markdown(f"**{row['Regiao']}**")
+                st.write(f"Total {vis_label_prefix}: {row[f'Total {vis_label_prefix}']:,.0f}")
+                st.write(f"Média por Município (dados > 0): {row[f'Média {vis_label_prefix} por Município (dados > 0)']:,.2f}")
+                st.write(f"Municípios com Dados: {row['Número de Municípios com Dados']:,.0f}")
+                st.write("---")
+    else:
+        st.write("Estatísticas regionais não disponíveis para a visualização selecionada ou não há dados para exibir.")
 
 st.markdown(
     '''
     <style>
     iframe {
-        height: 1200px !important;
+        height: 800px !important; /* Adjusted height */
         width: 100% !important;
         max-width: none !important;
-        padding: 20px !important;
+        padding: 0px !important; /* Adjusted padding */
         box-sizing: border-box !important;
         overflow: hidden !important;
     }
@@ -2678,7 +2715,7 @@ st.markdown(
         margin: 0 auto !important;
         padding-left: 2.5% !important;
         padding-right: 2.5% !important;
-        padding-top: 60px !important;
+        padding-top: 10px !important;
         padding-bottom: 20px !important;
         overflow-x: hidden !important;
     }
@@ -2742,8 +2779,7 @@ if visualization == 'Visão Geral':
         st.metric('Vist. DETRAN Cred.', f"{vistoria_df_24['CNPJ'].nunique():,.0f}") # Correctly count unique CNPJs from the original dataframe
         st.metric('Veículos Removidos (Pátios)', f"{patio_grouped['Total'].apply(pd.to_numeric, errors='coerce').sum():,.0f}")
         st.metric('Pátios Credenciados', f"{patio_credenciados['Total'].apply(pd.to_numeric, errors='coerce').sum():,.0f}")
-
-    st.info("Clique em um município no mapa para ver todos os dados detalhados no popup.")
+        
 elif visualization == 'Frota de Veículos':
     tipos_veiculos = [
         'Automóvel', 'Moto', 'Caminhão', 'Caminhonete', 'Microonibus',

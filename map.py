@@ -12,6 +12,54 @@ import unicodedata
 
 st.set_page_config(layout="wide")
 
+# --- Cached Data Loading Functions ---
+@st.cache_data
+def load_servicos_workbook():
+    """Loads the main services Excel workbook."""
+    return openpyxl.load_workbook(
+        'data/Anexo 3 - Solicitação Quantidade Serviços Prestados por Tipo BA GERAL - '
+        'Atualizado 20250409.xlsx', 
+        data_only=True
+    )
+
+@st.cache_data
+def load_frota_workbook():
+    """Loads the fleet data Excel workbook."""
+    return openpyxl.load_workbook(
+        'data/Novo Anexo 1 - Solicitação de Frota BA 2022_2023_2024_2025 em 20250107.xlsx', 
+        data_only=True
+    )
+
+@st.cache_data
+def load_populacao_df():
+    """Loads the population data Excel file into a DataFrame."""
+    pop_df = pd.read_excel('data/populacao.xlsx')
+    # Renomear colunas para padronização e compatibilidade
+    pop_df = pop_df.rename(columns={'Id_Municipio': 'Id_Município', 'Municipio': 'Município_POP', 'Populacao': 'População'})
+    # Garantir que Id_Município seja string para merge
+    pop_df['Id_Município'] = pop_df['Id_Município'].astype(str)
+    # Remover municípios duplicados no dataframe de população, mantendo a primeira ocorrência
+    pop_df = pop_df.drop_duplicates(subset=['Id_Município'], keep='first')
+    return pop_df
+
+@st.cache_data
+def load_geojson_data():
+    """Loads the GeoJSON file for Bahia municipalities."""
+    with open('data/geo-ba.json', 'r', encoding='utf-8') as f:
+        return json.load(f)
+
+@st.cache_data
+def load_credenciados_cfc_df():
+    """Loads the Credenciados CFC CSV file."""
+    return pd.read_csv('data/CredenciadosCFC.csv', header=None, names=['Nome', 'Município'])
+
+@st.cache_data
+def load_credenciados_clinica_df():
+    """Loads the Credenciados Clinica CSV file."""
+    return pd.read_csv('data/CredenciadosClinica.csv', header=None, names=['Nome', 'Município'])
+
+# --- End of Cached Data Loading Functions ---
+
 # Definição das regiões da Bahia
 regioes_ba = {
     'Centro-Norte': [   'AMÉRICA DOURADA',
@@ -433,16 +481,22 @@ regioes_ba = {
                                 'XIQUE-XIQUE']
 }
 
-data = openpyxl.load_workbook(
-    'data/Anexo 3 - Solicitação Quantidade Serviços Prestados por Tipo BA GERAL - '
-    'Atualizado 20250409.xlsx', 
-    data_only=True
-)
+# Load data using cached functions
+data_servicos_workbook = load_servicos_workbook()
+data_frota_workbook = load_frota_workbook()
+populacao_df_loaded = load_populacao_df() # Renamed to avoid conflict with later populacao_df
+geojson_data_loaded = load_geojson_data() # Renamed to avoid conflict
+credenciados_cfc_df_loaded = load_credenciados_cfc_df() # Renamed
+credenciados_clinica_df_loaded = load_credenciados_clinica_df() # Renamed
 
-data_frota = openpyxl.load_workbook(
-    'data/Novo Anexo 1 - Solicitação de Frota BA 2022_2023_2024_2025 em 20250107.xlsx', 
-    data_only=True
-)
+# Assign to original variable names (or update downstream code to use _loaded names)
+# For now, I will reassign to original names used later in the script
+data = data_servicos_workbook
+data_frota = data_frota_workbook
+populacao_df = populacao_df_loaded.copy() # Use .copy() if it will be modified
+geojson_data = geojson_data_loaded
+credenciados_cfc_df = credenciados_cfc_df_loaded.copy()
+credenciados_clinica_df = credenciados_clinica_df_loaded.copy()
 
 clinicas_cols = [
     'Id_Município Cidadão', 
@@ -545,199 +599,269 @@ frota_cols = [
     'Percentual'
 ]
 
-frota_24 = data_frota['2025']
-frota_df_24 = pd.DataFrame(frota_24.values)
-frota_df_24 = frota_df_24.drop(columns=[16,17,18,19,20,21,22,23,24,25,26])
-frota_df_24.columns = frota_cols
-frota_df_24 = frota_df_24.drop([0, 1, 2, 3])
-frota_df_24 = frota_df_24.iloc[:-2]
-frota_df_24 = frota_df_24.reset_index(drop=True)
-frota_df_24['Percentual'] = frota_df_24['Percentual'].apply(lambda x: round(x * 100, 2))
-frota_df_24.loc[frota_df_24['Município'] == 'SALVADOR', 'Id_Município'] = 3849
+# --- Cached DataFrame Processing Functions ---
+@st.cache_data
+def get_frota_df_24(_frota_workbook, _frota_cols):
+    frota_sheet = _frota_workbook['2025']
+    df = pd.DataFrame(frota_sheet.values)
+    df = df.drop(columns=[16,17,18,19,20,21,22,23,24,25,26])
+    df.columns = _frota_cols
+    df = df.drop([0, 1, 2, 3])
+    df = df.iloc[:-2]
+    df = df.reset_index(drop=True)
+    df['Percentual'] = df['Percentual'].apply(lambda x: round(x * 100, 2) if pd.notna(x) else x)
+    df.loc[df['Município'] == 'SALVADOR', 'Id_Município'] = 3849
+    dias_avila_mask = df['Município'].apply(lambda x: 'DIAS' in str(x).upper() and ('AVILA' in str(x).upper() or 'ÁVILA' in str(x).upper()))
+    if dias_avila_mask.any():
+        df.loc[dias_avila_mask, 'Município'] = "DIAS D'ÁVILA"
+    return df
 
-# When adding data to frota_grouped, make sure to fix Dias d'Ávila name
-dias_avila_mask = frota_df_24['Município'].apply(lambda x: 'DIAS' in str(x).upper() and ('AVILA' in str(x).upper() or 'ÁVILA' in str(x).upper()))
-if dias_avila_mask.any():
-    frota_df_24.loc[dias_avila_mask, 'Município'] = "DIAS D'ÁVILA"
+@st.cache_data
+def get_cfc_df_24(_servicos_workbook, _cfc_cols):
+    cfc_sheet = _servicos_workbook['Serviços_CFC_2024']
+    df = pd.DataFrame(cfc_sheet.values)
+    df.columns = _cfc_cols
+    df = df.drop([0,1,2,3])
+    df = df.iloc[:-2]
+    df = df.reset_index(drop=True)
+    df['CNPJ'] = df['CNPJ'].astype(str).str.strip().replace('\\.0$', '', regex=True)
+    df['Percentual'] = df['Percentual'].apply(lambda x: round(x * 100, 2) if pd.notna(x) else x)
+    df['Total'] = pd.to_numeric(df['Total'], errors='coerce').fillna(0)
+    return df
 
-cfc_24 = data['Serviços_CFC_2024']
-cfc_df_24 = pd.DataFrame(cfc_24.values)
-cfc_df_24.columns = cfc_cols
-cfc_df_24 = cfc_df_24.drop([0,1,2,3])
-cfc_df_24 = cfc_df_24.iloc[:-2]
-cfc_df_24 = cfc_df_24.reset_index(drop=True)
-# Ensure CNPJ is string for consistent filtering
-cfc_df_24['CNPJ'] = cfc_df_24['CNPJ'].astype(str).str.strip().replace('\\.0$', '', regex=True)
-cfc_df_24['Percentual'] = cfc_df_24['Percentual'].apply(lambda x: round(x * 100, 2))
-cfc_df_24['Total'] = pd.to_numeric(cfc_df_24['Total'], errors='coerce').fillna(0)
+@st.cache_data
+def get_clinicas_df_24(_servicos_workbook, _clinicas_cols):
+    clinicas_sheet = _servicos_workbook['Serviços_Clinica_2024']
+    df = pd.DataFrame(clinicas_sheet.values)
+    df.columns = _clinicas_cols
+    df = df.drop([0,1,2,3])
+    df = df.iloc[:-2]
+    df = df.reset_index(drop=True)
+    df['CNPJ'] = df['CNPJ'].astype(str).str.strip().replace('\\.0$', '', regex=True)
+    df['Percentual'] = df['Percentual'].apply(lambda x: round(x * 100, 2) if pd.notna(x) else x)
+    df['Total'] = pd.to_numeric(df['Total'], errors='coerce').fillna(0)
+    return df
 
-clinicas_24 = data['Serviços_Clinica_2024']
-clinicas_df_24 = pd.DataFrame(clinicas_24.values)
-clinicas_df_24.columns = clinicas_cols
-clinicas_df_24 = clinicas_df_24.drop([0,1,2,3])
-clinicas_df_24 = clinicas_df_24.iloc[:-2]
-clinicas_df_24 = clinicas_df_24.reset_index(drop=True)
-# Ensure CNPJ is string for consistent filtering
-clinicas_df_24['CNPJ'] = clinicas_df_24['CNPJ'].astype(str).str.strip().replace('\\.0$', '', regex=True)
-clinicas_df_24['Percentual'] = clinicas_df_24['Percentual'].apply(lambda x: round(x * 100, 2))
-clinicas_df_24['Total'] = pd.to_numeric(clinicas_df_24['Total'], errors='coerce').fillna(0)
+@st.cache_data
+def get_epiv_df_24(_servicos_workbook, _epiv_cols):
+    epiv_sheet = _servicos_workbook['Serviços_EPIV_2024']
+    df = pd.DataFrame(epiv_sheet.values)
+    df.columns = _epiv_cols
+    df = df.drop([0,1,2,3])
+    df = df.iloc[:-2]
+    df = df.reset_index(drop=True)
+    df['Percentual'] = df['Percentual'].apply(lambda x: round(x * 100, 2) if pd.notna(x) else x)
+    df['Total'] = pd.to_numeric(df['Total'], errors='coerce').fillna(0)
+    return df
 
-epiv_24 = data['Serviços_EPIV_2024']
-epiv_df_24 = pd.DataFrame(epiv_24.values)
-epiv_df_24.columns = epiv_cols
-epiv_df_24 = epiv_df_24.drop([0,1,2,3])
-epiv_df_24 = epiv_df_24.iloc[:-2]
-epiv_df_24 = epiv_df_24.reset_index(drop=True)
-epiv_df_24['Percentual'] = epiv_df_24['Percentual'].apply(lambda x: round(x * 100, 2))
-epiv_df_24['Total'] = pd.to_numeric(epiv_df_24['Total'], errors='coerce').fillna(0)
+@st.cache_data
+def get_ecv_df_24(_servicos_workbook, _ecv_cols):
+    ecv_sheet = _servicos_workbook['Serviços_ECV_2024']
+    df = pd.DataFrame(ecv_sheet.values)
+    df.columns = _ecv_cols
+    df = df.drop([0,1,2,3])
+    df = df.iloc[:-2]
+    df = df.reset_index(drop=True)
+    df['Percentual'] = df['Percentual'].apply(lambda x: round(x * 100, 2) if pd.notna(x) else x)
+    df['Total'] = pd.to_numeric(df['Total'], errors='coerce').fillna(0)
+    return df
 
-ecv_24 = data['Serviços_ECV_2024']
-ecv_df_24 = pd.DataFrame(ecv_24.values)
-ecv_df_24.columns = ecv_cols
-ecv_df_24 = ecv_df_24.drop([0,1,2,3])
-ecv_df_24 = ecv_df_24.iloc[:-2]
-ecv_df_24 = ecv_df_24.reset_index(drop=True)
-ecv_df_24['Percentual'] = ecv_df_24['Percentual'].apply(lambda x: round(x * 100, 2))
-ecv_df_24['Total'] = pd.to_numeric(ecv_df_24['Total'], errors='coerce').fillna(0)
+@st.cache_data
+def get_vistoria_df_24(_servicos_workbook, _ecv_cols): # Uses ecv_cols intentionally
+    vistoria_sheet = _servicos_workbook['Serviços_Vistoria_DETRAN_2024']
+    df = pd.DataFrame(vistoria_sheet.values)
+    df.columns = _ecv_cols
+    df = df.drop([0,1,2,3])
+    df = df.iloc[:-2]
+    df = df.reset_index(drop=True)
+    df['Percentual'] = df['Percentual'].apply(lambda x: round(x * 100, 2) if pd.notna(x) else x)
+    df['Total'] = pd.to_numeric(df['Total'], errors='coerce').fillna(0)
+    return df
 
-vistoria_24 = data['Serviços_Vistoria_DETRAN_2024']
-vistoria_df_24 = pd.DataFrame(vistoria_24.values)
-vistoria_df_24.columns = ecv_cols
-vistoria_df_24 = vistoria_df_24.drop([0,1,2,3])
-vistoria_df_24 = vistoria_df_24.iloc[:-2]
-vistoria_df_24 = vistoria_df_24.reset_index(drop=True)
-vistoria_df_24['Percentual'] = vistoria_df_24['Percentual'].apply(lambda x: round(x * 100, 2))
-vistoria_df_24['Total'] = pd.to_numeric(vistoria_df_24['Total'], errors='coerce').fillna(0)
+@st.cache_data
+def get_patio_df_24(_servicos_workbook, _patio_cols):
+    patio_sheet = _servicos_workbook['Serviços_Pátio_2024']
+    df = pd.DataFrame(patio_sheet.values)
+    df.columns = _patio_cols
+    df = df.drop([0,1,2,3])
+    df = df.iloc[:-2]
+    df = df.reset_index(drop=True)
+    df['Percentual'] = df['Percentual'].apply(lambda x: round(x * 100, 2) if pd.notna(x) else x)
+    df['Total'] = pd.to_numeric(df['Total'], errors='coerce').fillna(0)
+    return df
 
-patio_24 = data['Serviços_Pátio_2024']
-patio_df_24 = pd.DataFrame(patio_24.values)
-patio_df_24.columns = patio_cols
-patio_df_24 = patio_df_24.drop([0,1,2,3])
-patio_df_24 = patio_df_24.iloc[:-2]
-patio_df_24 = patio_df_24.reset_index(drop=True)
-patio_df_24['Percentual'] = patio_df_24['Percentual'].apply(lambda x: round(x * 100, 2))
-patio_df_24['Total'] = pd.to_numeric(patio_df_24['Total'], errors='coerce').fillna(0)
+# --- End of Cached DataFrame Processing Functions ---
 
-# Carregar dados de população
-populacao_df = pd.read_excel('data/populacao.xlsx')
-# Renomear colunas para padronização e compatibilidade
-populacao_df = populacao_df.rename(columns={'Id_Municipio': 'Id_Município', 'Municipio': 'Município_POP', 'Populacao': 'População'})
-# Garantir que Id_Município seja string para merge
-populacao_df['Id_Município'] = populacao_df['Id_Município'].astype(str)
-# Remover municípios duplicados no dataframe de população, mantendo a primeira ocorrência
-populacao_df = populacao_df.drop_duplicates(subset=['Id_Município'], keep='first')
+# Call cached functions to get the processed DataFrames
+frota_df_24 = get_frota_df_24(data_frota_workbook, frota_cols)
+cfc_df_24 = get_cfc_df_24(data_servicos_workbook, cfc_cols)
+clinicas_df_24 = get_clinicas_df_24(data_servicos_workbook, clinicas_cols)
+epiv_df_24 = get_epiv_df_24(data_servicos_workbook, epiv_cols)
+ecv_df_24 = get_ecv_df_24(data_servicos_workbook, ecv_cols)
+vistoria_df_24 = get_vistoria_df_24(data_servicos_workbook, ecv_cols) # Uses ecv_cols as in original
+patio_df_24 = get_patio_df_24(data_servicos_workbook, patio_cols)
+
+# --- Cached Aggregation and Grouping Functions ---
+
+@st.cache_data
+def get_global_total_servicos_por_cnpj(_df):
+    """Calculates global total services grouped by CNPJ for a given DataFrame."""
+    if 'CNPJ' in _df.columns and 'Total' in _df.columns:
+        return _df.groupby('CNPJ')['Total'].sum().reset_index()
+    return pd.DataFrame() # Return empty DataFrame if required columns are missing
+
+@st.cache_data
+def get_cfc_grouped(_cfc_df_24):
+    df = _cfc_df_24.groupby('Id_Município CFC').agg({
+        'Município CFC': 'first',
+        'Cursos Teóricos': lambda x: pd.to_numeric(x, errors='coerce').sum(),
+        'Cursos Práticos': lambda x: pd.to_numeric(x, errors='coerce').sum(),
+        'Total': lambda x: pd.to_numeric(x, errors='coerce').sum()
+    }).reset_index().rename(columns={'Id_Município CFC': 'Id_Município', 'Município CFC': 'Município'})
+    dias_avila_mask = df['Município'].apply(lambda x: 'DIAS' in str(x).upper() and ('AVILA' in str(x).upper() or 'ÁVILA' in str(x).upper()))
+    if dias_avila_mask.any():
+        df.loc[dias_avila_mask, 'Município'] = "DIAS D'ÁVILA"
+    df['Id_Município'] = df['Id_Município'].astype(str)
+    return df
+
+@st.cache_data
+def get_clinicas_grouped(_clinicas_df_24):
+    df = _clinicas_df_24.groupby('Id_Município Clínica').agg({
+        'Município Clínica': 'first',
+        'Exames Médicos': lambda x: pd.to_numeric(x, errors='coerce').sum(),
+        'Exames Psicológicos': lambda x: pd.to_numeric(x, errors='coerce').sum(),
+        'Total': lambda x: pd.to_numeric(x, errors='coerce').sum()
+    }).reset_index().rename(columns={'Id_Município Clínica': 'Id_Município', 'Município Clínica': 'Município'})
+    df['Id_Município'] = df['Id_Município'].astype(str)
+    return df
+
+@st.cache_data
+def get_frota_grouped(_frota_df_24, _populacao_df_arg):
+    df = _frota_df_24.groupby('Id_Município').agg({
+        'Município': 'first',
+        'Automóvel': lambda x: pd.to_numeric(x, errors='coerce').sum(),
+        'Caminhão': lambda x: pd.to_numeric(x, errors='coerce').sum(),
+        'Caminhonete': lambda x: pd.to_numeric(x, errors='coerce').sum(),
+        'Microonibus': lambda x: pd.to_numeric(x, errors='coerce').sum(),
+        'Moto': lambda x: pd.to_numeric(x, errors='coerce').sum(),
+        'Motor-Casa': lambda x: pd.to_numeric(x, errors='coerce').sum(),
+        'Onibus': lambda x: pd.to_numeric(x, errors='coerce').sum(),
+        'Reboque': lambda x: pd.to_numeric(x, errors='coerce').sum(),
+        'Trator': lambda x: pd.to_numeric(x, errors='coerce').sum(),
+        'Outros': lambda x: pd.to_numeric(x, errors='coerce').sum(),
+        'Total': lambda x: pd.to_numeric(x, errors='coerce').sum()
+    }).reset_index()
+    df['Id_Município'] = df['Id_Município'].astype(str)
+    _populacao_df_copy = _populacao_df_arg.copy()
+    _populacao_df_copy['Id_Município'] = _populacao_df_copy['Id_Município'].astype(str)
+    df = pd.merge(df, _populacao_df_copy[['Id_Município', 'População']], on='Id_Município', how='left')
+    return df
+
+@st.cache_data
+def get_epiv_grouped(_epiv_df_24):
+    df = _epiv_df_24.groupby('Id_Município').agg({
+        'Município': 'first',
+        'Estampagem': lambda x: pd.to_numeric(x, errors='coerce').sum(),
+        'Total': lambda x: pd.to_numeric(x, errors='coerce').sum()
+    }).reset_index()
+    df['Id_Município'] = df['Id_Município'].astype(str)
+    return df
+
+@st.cache_data
+def get_ecv_grouped(_ecv_df_24):
+    df = _ecv_df_24.groupby('Id_Município').agg({
+        'Município': 'first',
+        'Vistoria Lacrada Veículo 4 Rodas Até 16 Lugares ou Maior 3,5T': lambda x: pd.to_numeric(x, errors='coerce').sum(),
+        'Vistoria Lacrada Veículo Carga PBT Mais 3,5T': lambda x: pd.to_numeric(x, errors='coerce').sum(),
+        'Vistoria Lacrada Veículo Combinado Veículo P/Unidade': lambda x: pd.to_numeric(x, errors='coerce').sum(),
+        'Vistoria Lacrada Veículo Passageiro com Lotação Acima de 16 Lugares': lambda x: pd.to_numeric(x, errors='coerce').sum(),
+        'Vistoria Lacrada Veículo 2 ou 3 Rodas': lambda x: pd.to_numeric(x, errors='coerce').sum(),
+        'Vistoria RENAVE de Veículo 4 Rodas 16 Lugares ou Até 3,5 Ton': lambda x: pd.to_numeric(x, errors='coerce').sum(),
+        'Vistoria RENAVE de Veículos de 2 e 3 Rodas': lambda x: pd.to_numeric(x, errors='coerce').sum(),
+        'Vistoria Veículo Carga com PBT Acima de 3,5T': lambda x: pd.to_numeric(x, errors='coerce').sum(),
+        'Vistoria Veicular de Combinações de Veículos por Unidade': lambda x: pd.to_numeric(x, errors='coerce').sum(),
+        'Vistoria Veículo 2 ou 3 Rodas': lambda x: pd.to_numeric(x, errors='coerce').sum(),
+        'Vistoria Veículo 4 Rodas Até 16 Lugares ou Até 3,5 Ton': lambda x: pd.to_numeric(x, errors='coerce').sum(),
+        'Vistoria Veículo Passageiros com Capacidade Acima de 16 Lugares': lambda x: pd.to_numeric(x, errors='coerce').sum(),
+        'Outras': lambda x: pd.to_numeric(x, errors='coerce').sum(),
+        'Total': lambda x: pd.to_numeric(x, errors='coerce').sum()
+    }).reset_index()
+    df['Id_Município'] = df['Id_Município'].astype(str)
+    return df
+
+@st.cache_data
+def get_vistoria_grouped(_vistoria_df_24):
+    df = _vistoria_df_24.groupby('Id_Município').agg({
+        'Município': 'first',
+        'Vistoria Lacrada Veículo 4 Rodas Até 16 Lugares ou Maior 3,5T': lambda x: pd.to_numeric(x, errors='coerce').sum(),
+        'Vistoria Lacrada Veículo Carga PBT Mais 3,5T': lambda x: pd.to_numeric(x, errors='coerce').sum(),
+        'Vistoria Lacrada Veículo Combinado Veículo P/Unidade': lambda x: pd.to_numeric(x, errors='coerce').sum(),
+        'Vistoria Lacrada Veículo Passageiro com Lotação Acima de 16 Lugares': lambda x: pd.to_numeric(x, errors='coerce').sum(),
+        'Vistoria Lacrada Veículo 2 ou 3 Rodas': lambda x: pd.to_numeric(x, errors='coerce').sum(),
+        'Vistoria RENAVE de Veículo 4 Rodas 16 Lugares ou Até 3,5 Ton': lambda x: pd.to_numeric(x, errors='coerce').sum(),
+        'Vistoria RENAVE de Veículos de 2 e 3 Rodas': lambda x: pd.to_numeric(x, errors='coerce').sum(),
+        'Vistoria Veículo Carga com PBT Acima de 3,5T': lambda x: pd.to_numeric(x, errors='coerce').sum(),
+        'Vistoria Veicular de Combinações de Veículos por Unidade': lambda x: pd.to_numeric(x, errors='coerce').sum(),
+        'Vistoria Veículo 2 ou 3 Rodas': lambda x: pd.to_numeric(x, errors='coerce').sum(),
+        'Vistoria Veículo 4 Rodas Até 16 Lugares ou Até 3,5 Ton': lambda x: pd.to_numeric(x, errors='coerce').sum(),
+        'Vistoria Veículo Passageiros com Capacidade Acima de 16 Lugares': lambda x: pd.to_numeric(x, errors='coerce').sum(),
+        'Outras': lambda x: pd.to_numeric(x, errors='coerce').sum(),
+        'Total': lambda x: pd.to_numeric(x, errors='coerce').sum()
+    }).reset_index()
+    df['Id_Município'] = df['Id_Município'].astype(str)
+    return df
+
+@st.cache_data
+def get_patio_grouped(_patio_df_24):
+    df = _patio_df_24.groupby('Id_Município').agg({
+        'Município': 'first',
+        'Veículos removidos': lambda x: pd.to_numeric(x, errors='coerce').sum(),
+        'Total': lambda x: pd.to_numeric(x, errors='coerce').sum()
+    }).reset_index()
+    df['Id_Município'] = df['Id_Município'].astype(str)
+    return df
+
+# Call cached functions to get global totals and grouped DataFrames
+cfc_total_servicos_global_por_cnpj = get_global_total_servicos_por_cnpj(cfc_df_24)
+clinica_total_servicos_global_por_cnpj = get_global_total_servicos_por_cnpj(clinicas_df_24)
+epiv_total_servicos_global_por_cnpj = get_global_total_servicos_por_cnpj(epiv_df_24)
+ecv_total_servicos_global_por_cnpj = get_global_total_servicos_por_cnpj(ecv_df_24)
+vistoria_total_servicos_global_por_cnpj = get_global_total_servicos_por_cnpj(vistoria_df_24)
+patio_total_servicos_global_por_cnpj = get_global_total_servicos_por_cnpj(patio_df_24)
+
+cfc_grouped = get_cfc_grouped(cfc_df_24)
+clinicas_grouped = get_clinicas_grouped(clinicas_df_24)
+frota_grouped = get_frota_grouped(frota_df_24, populacao_df) # populacao_df is already a copy of the loaded data
+epiv_grouped = get_epiv_grouped(epiv_df_24)
+ecv_grouped = get_ecv_grouped(ecv_df_24)
+vistoria_grouped = get_vistoria_grouped(vistoria_df_24)
+patio_grouped = get_patio_grouped(patio_df_24)
+
+# The populacao_df rename for map regions part needs to use a fresh copy from the loaded data.
+populacao_df_for_regions = populacao_df_loaded.copy() # Use a fresh copy directly from the cached load
+populacao_df_for_regions = populacao_df_for_regions.rename(columns={'População': 'Total'})
+
+# --- End of Cached Aggregation and Grouping Functions ---
 
 # Calcular totais globais de serviços por CNPJ
-cfc_total_servicos_global_por_cnpj = cfc_df_24.groupby('CNPJ')['Total'].sum().reset_index()
-clinica_total_servicos_global_por_cnpj = clinicas_df_24.groupby('CNPJ')['Total'].sum().reset_index()
-epiv_total_servicos_global_por_cnpj = epiv_df_24.groupby('CNPJ')['Total'].sum().reset_index()
-ecv_total_servicos_global_por_cnpj = ecv_df_24.groupby('CNPJ')['Total'].sum().reset_index()
-vistoria_total_servicos_global_por_cnpj = vistoria_df_24.groupby('CNPJ')['Total'].sum().reset_index()
-patio_total_servicos_global_por_cnpj = patio_df_24.groupby('CNPJ')['Total'].sum().reset_index()
+# cfc_total_servicos_global_por_cnpj = cfc_df_24.groupby('CNPJ')['Total'].sum().reset_index()
+# clinica_total_servicos_global_por_cnpj = clinicas_df_24.groupby('CNPJ')['Total'].sum().reset_index()
+# epiv_total_servicos_global_por_cnpj = epiv_df_24.groupby('CNPJ')['Total'].sum().reset_index()
+# ecv_total_servicos_global_por_cnpj = ecv_df_24.groupby('CNPJ')['Total'].sum().reset_index()
+# vistoria_total_servicos_global_por_cnpj = vistoria_df_24.groupby('CNPJ')['Total'].sum().reset_index()
+# patio_total_servicos_global_por_cnpj = patio_df_24.groupby('CNPJ')['Total'].sum().reset_index()
 
 # Criar dataframes agrupados por município
-# CFCs - agrupar por município do CFC
-cfc_grouped = cfc_df_24.groupby('Id_Município CFC').agg({
-    'Município CFC': 'first',
-    'Cursos Teóricos': lambda x: pd.to_numeric(x, errors='coerce').sum(),
-    'Cursos Práticos': lambda x: pd.to_numeric(x, errors='coerce').sum(),
-    'Total': lambda x: pd.to_numeric(x, errors='coerce').sum()
-}).reset_index().rename(columns={'Id_Município CFC': 'Id_Município', 'Município CFC': 'Município'})
-
-# Fix Dias d'Ávila in cfc_grouped
-dias_avila_mask = cfc_grouped['Município'].apply(lambda x: 'DIAS' in str(x).upper() and ('AVILA' in str(x).upper() or 'ÁVILA' in str(x).upper()))
-if dias_avila_mask.any():
-    cfc_grouped.loc[dias_avila_mask, 'Município'] = "DIAS D'ÁVILA"
-
-# Clínicas - agrupar por município da clínica
-clinicas_grouped = clinicas_df_24.groupby('Id_Município Clínica').agg({
-    'Município Clínica': 'first',
-    'Exames Médicos': lambda x: pd.to_numeric(x, errors='coerce').sum(),
-    'Exames Psicológicos': lambda x: pd.to_numeric(x, errors='coerce').sum(),
-    'Total': lambda x: pd.to_numeric(x, errors='coerce').sum()
-}).reset_index().rename(columns={'Id_Município Clínica': 'Id_Município', 'Município Clínica': 'Município'})
-
-# Frota - agrupar por município
-frota_grouped = frota_df_24.groupby('Id_Município').agg({
-    'Município': 'first',
-    'Automóvel': lambda x: pd.to_numeric(x, errors='coerce').sum(),
-    'Caminhão': lambda x: pd.to_numeric(x, errors='coerce').sum(),
-    'Caminhonete': lambda x: pd.to_numeric(x, errors='coerce').sum(),
-    'Microonibus': lambda x: pd.to_numeric(x, errors='coerce').sum(),
-    'Moto': lambda x: pd.to_numeric(x, errors='coerce').sum(),
-    'Motor-Casa': lambda x: pd.to_numeric(x, errors='coerce').sum(),
-    'Onibus': lambda x: pd.to_numeric(x, errors='coerce').sum(),
-    'Reboque': lambda x: pd.to_numeric(x, errors='coerce').sum(),
-    'Trator': lambda x: pd.to_numeric(x, errors='coerce').sum(),
-    'Outros': lambda x: pd.to_numeric(x, errors='coerce').sum(),
-    'Total': lambda x: pd.to_numeric(x, errors='coerce').sum()
-}).reset_index()
-
-# Garantir que a coluna de merge em frota_grouped também seja string
-frota_grouped['Id_Município'] = frota_grouped['Id_Município'].astype(str)
-
-# Mesclar frota_grouped com populacao_df
-frota_grouped = pd.merge(frota_grouped, populacao_df[['Id_Município', 'População']], on='Id_Município', how='left')
-
-# EPIVs - agrupar por município
-epiv_grouped = epiv_df_24.groupby('Id_Município').agg({
-    'Município': 'first',
-    'Estampagem': lambda x: pd.to_numeric(x, errors='coerce').sum(),
-    'Total': lambda x: pd.to_numeric(x, errors='coerce').sum()
-}).reset_index()
-
-# ECVs - agrupar por município
-ecv_grouped = ecv_df_24.groupby('Id_Município').agg({
-    'Município': 'first',
-    'Vistoria Lacrada Veículo 4 Rodas Até 16 Lugares ou Maior 3,5T': lambda x: pd.to_numeric(x, errors='coerce').sum(),
-    'Vistoria Lacrada Veículo Carga PBT Mais 3,5T': lambda x: pd.to_numeric(x, errors='coerce').sum(),
-    'Vistoria Lacrada Veículo Combinado Veículo P/Unidade': lambda x: pd.to_numeric(x, errors='coerce').sum(),
-    'Vistoria Lacrada Veículo Passageiro com Lotação Acima de 16 Lugares': lambda x: pd.to_numeric(x, errors='coerce').sum(),
-    'Vistoria Lacrada Veículo 2 ou 3 Rodas': lambda x: pd.to_numeric(x, errors='coerce').sum(),
-    'Vistoria RENAVE de Veículo 4 Rodas 16 Lugares ou Até 3,5 Ton': lambda x: pd.to_numeric(x, errors='coerce').sum(),
-    'Vistoria RENAVE de Veículos de 2 e 3 Rodas': lambda x: pd.to_numeric(x, errors='coerce').sum(),
-    'Vistoria Veículo Carga com PBT Acima de 3,5T': lambda x: pd.to_numeric(x, errors='coerce').sum(),
-    'Vistoria Veicular de Combinações de Veículos por Unidade': lambda x: pd.to_numeric(x, errors='coerce').sum(),
-    'Vistoria Veículo 2 ou 3 Rodas': lambda x: pd.to_numeric(x, errors='coerce').sum(),
-    'Vistoria Veículo 4 Rodas Até 16 Lugares ou Até 3,5 Ton': lambda x: pd.to_numeric(x, errors='coerce').sum(),
-    'Vistoria Veículo Passageiros com Capacidade Acima de 16 Lugares': lambda x: pd.to_numeric(x, errors='coerce').sum(),
-    'Outras': lambda x: pd.to_numeric(x, errors='coerce').sum(),
-    'Total': lambda x: pd.to_numeric(x, errors='coerce').sum()
-}).reset_index()
-
-# Vistorias DETRAN - agrupar por município
-vistoria_grouped = vistoria_df_24.groupby('Id_Município').agg({
-    'Município': 'first',
-    'Vistoria Lacrada Veículo 4 Rodas Até 16 Lugares ou Maior 3,5T': lambda x: pd.to_numeric(x, errors='coerce').sum(),
-    'Vistoria Lacrada Veículo Carga PBT Mais 3,5T': lambda x: pd.to_numeric(x, errors='coerce').sum(),
-    'Vistoria Lacrada Veículo Combinado Veículo P/Unidade': lambda x: pd.to_numeric(x, errors='coerce').sum(),
-    'Vistoria Lacrada Veículo Passageiro com Lotação Acima de 16 Lugares': lambda x: pd.to_numeric(x, errors='coerce').sum(),
-    'Vistoria Lacrada Veículo 2 ou 3 Rodas': lambda x: pd.to_numeric(x, errors='coerce').sum(),
-    'Vistoria RENAVE de Veículo 4 Rodas 16 Lugares ou Até 3,5 Ton': lambda x: pd.to_numeric(x, errors='coerce').sum(),
-    'Vistoria RENAVE de Veículos de 2 e 3 Rodas': lambda x: pd.to_numeric(x, errors='coerce').sum(),
-    'Vistoria Veículo Carga com PBT Acima de 3,5T': lambda x: pd.to_numeric(x, errors='coerce').sum(),
-    'Vistoria Veicular de Combinações de Veículos por Unidade': lambda x: pd.to_numeric(x, errors='coerce').sum(),
-    'Vistoria Veículo 2 ou 3 Rodas': lambda x: pd.to_numeric(x, errors='coerce').sum(),
-    'Vistoria Veículo 4 Rodas Até 16 Lugares ou Até 3,5 Ton': lambda x: pd.to_numeric(x, errors='coerce').sum(),
-    'Vistoria Veículo Passageiros com Capacidade Acima de 16 Lugares': lambda x: pd.to_numeric(x, errors='coerce').sum(),
-    'Outras': lambda x: pd.to_numeric(x, errors='coerce').sum(),
-    'Total': lambda x: pd.to_numeric(x, errors='coerce').sum()
-}).reset_index()
-
-# Pátios - agrupar por município
-patio_grouped = patio_df_24.groupby('Id_Município').agg({
-    'Município': 'first',
-    'Veículos removidos': lambda x: pd.to_numeric(x, errors='coerce').sum(),
-    'Total': lambda x: pd.to_numeric(x, errors='coerce').sum()
-}).reset_index()
+# ... (all original grouping logic lines are now commented out or moved to cached functions) ...
 
 # Garantir que Id_Município seja string em todos os dataframes
-for df in [cfc_grouped, clinicas_grouped, frota_grouped, epiv_grouped, ecv_grouped, vistoria_grouped, patio_grouped]:
-    df['Id_Município'] = df['Id_Município'].astype(str)
+# for df in [cfc_grouped, clinicas_grouped, frota_grouped, epiv_grouped, ecv_grouped, vistoria_grouped, patio_grouped]:
+#     df['Id_Município'] = df['Id_Município'].astype(str) # This is now handled within each respective get_*_grouped function
+
 
 # Load GeoJSON data
-with open('data/geo-ba.json', 'r', encoding='utf-8') as f:
-    geojson_data = json.load(f)
+# with open('data/geo-ba.json', 'r', encoding='utf-8') as f: # Original lines
+#     geojson_data = json.load(f) # Handled by cached function
 
 # Create the base map centered on Bahia
 m = folium.Map(
@@ -795,8 +919,8 @@ st.markdown("""
 """, unsafe_allow_html=True)
 
 # Carregar dados dos CSVs de credenciados
-credenciados_cfc_df = pd.read_csv('data/CredenciadosCFC.csv', header=None, names=['Nome', 'Município'])
-credenciados_clinica_df = pd.read_csv('data/CredenciadosClinica.csv', header=None, names=['Nome', 'Município'])
+# credenciados_cfc_df = pd.read_csv('data/CredenciadosCFC.csv', header=None, names=['Nome', 'Município']) # Handled by cache
+# credenciados_clinica_df = pd.read_csv('data/CredenciadosClinica.csv', header=None, names=['Nome', 'Município']) # Handled by cache
 
 # Add multi-select for municipalities
 municipios = sorted(frota_grouped['Município'].unique())
@@ -881,7 +1005,7 @@ if visualization == 'Quantidade de CFCs':
 
     if escolha_cnpj_cfc != 'Todos (CNPJ)':
         # Ao invés de sobrescrever municipios_selecionados, populamos municipios_cfc_cnpj
-        municipios_cfc_cnpj = cfc_df_24[cfc_df_24['CNPJ'].astype(str) == escolha_cnpj_cfc]['Município CFC'].unique().tolist()
+        municipios_cfc_cnpj = cfc_df_24[cfc_df_24['CNPJ'].astype(str) == escolha_cnpj_cfc]['Município Cidadão'].unique().tolist()
     else:
         municipios_cfc_cnpj = []
 
@@ -912,7 +1036,7 @@ elif visualization == 'Quantidade de Clínicas':
 
     if escolha_cnpj_clinica != 'Todos (CNPJ)':
         # Ao invés de sobrescrever municipios_selecionados, populamos municipios_clinica_cnpj
-        municipios_clinica_cnpj = clinicas_df_24[clinicas_df_24['CNPJ'].astype(str) == escolha_cnpj_clinica]['Município Clínica'].unique().tolist()
+        municipios_clinica_cnpj = clinicas_df_24[clinicas_df_24['CNPJ'].astype(str) == escolha_cnpj_clinica]['Município Cidadão'].unique().tolist()
     else:
         municipios_clinica_cnpj = []
 
@@ -937,42 +1061,72 @@ def get_municipios_por_credenciado_filtro():
 def normaliza_nome(nome):
     if not isinstance(nome, str):
         return ''
+    
+    nome_upper = nome.upper() # For special name checks
+
     # Tratamento especial para Dias d'Ávila
-    nome_upper = nome.upper()
     if 'DIAS D AVILA' in nome_upper or "DIAS D'AVILA" in nome_upper or 'DIAS DAVILA' in nome_upper:
         return 'dias davila'
-    return unicodedata.normalize('NFKD', nome).encode('ASCII', 'ignore').decode('ASCII').lower().strip()
 
-# Create dataframes for number of accredited service providers
-cfc_credenciados = cfc_df_24.groupby('Id_Município CFC').agg({
-    'Município CFC': 'first',
-    'CNPJ': 'nunique'
-}).reset_index().rename(columns={'Id_Município CFC': 'Id_Município', 'Município CFC': 'Município', 'CNPJ': 'Total'})
+    # General normalization (accents, case, strip)
+    # Wrap in try-except for robustness, though isinstance check should prevent most issues
+    try:
+        base_normalized = unicodedata.normalize('NFKD', nome).encode('ASCII', 'ignore').decode('ASCII').lower().strip()
+    except Exception:
+        # Fallback if normalization fails unexpectedly for a string
+        base_normalized = nome.lower().strip()
 
-clinicas_credenciadas = clinicas_df_24.groupby('Id_Município Clínica').agg({
-    'Município Clínica': 'first',
-    'CNPJ': 'nunique'
-}).reset_index().rename(columns={'Id_Município Clínica': 'Id_Município', 'Município Clínica': 'Município', 'CNPJ': 'Total'})
+    # Specific handling for Xique Xique to ensure "xique-xique" is the canonical form
+    # This allows "Xique Xique", "xiquexique", and "Xique-Xique" to all match
+    if base_normalized == 'xique xique' or base_normalized == 'xiquexique':
+        return 'xique-xique'
+    
+    return base_normalized
 
-epiv_credenciados = epiv_df_24.groupby('Id_Município').agg({
-    'Município': 'first',
-    'CNPJ': 'nunique'
-}).reset_index().rename(columns={'CNPJ': 'Total'})
+# --- Cached Credenciados Count DataFrames ---
+@st.cache_data
+def get_cfc_credenciados(_cfc_df_24):
+    return _cfc_df_24.groupby('Id_Município CFC').agg(
+        {'Município CFC': 'first', 'CNPJ': 'nunique'}
+    ).reset_index().rename(columns={'Id_Município CFC': 'Id_Município', 'Município CFC': 'Município', 'CNPJ': 'Total'})
 
-ecv_credenciados = ecv_df_24.groupby('Id_Município').agg({
-    'Município': 'first',
-    'CNPJ': 'nunique'
-}).reset_index().rename(columns={'CNPJ': 'Total'})
+@st.cache_data
+def get_clinicas_credenciadas(_clinicas_df_24):
+    return _clinicas_df_24.groupby('Id_Município Clínica').agg(
+        {'Município Clínica': 'first', 'CNPJ': 'nunique'}
+    ).reset_index().rename(columns={'Id_Município Clínica': 'Id_Município', 'Município Clínica': 'Município', 'CNPJ': 'Total'})
 
-vistoria_credenciados = vistoria_df_24.groupby('Id_Município').agg({
-    'Município': 'first',
-    'CNPJ': 'nunique'
-}).reset_index().rename(columns={'CNPJ': 'Total'})
+@st.cache_data
+def get_epiv_credenciados(_epiv_df_24):
+    return _epiv_df_24.groupby('Id_Município').agg(
+        {'Município': 'first', 'CNPJ': 'nunique'}
+    ).reset_index().rename(columns={'CNPJ': 'Total'})
 
-patio_credenciados = patio_df_24.groupby('Id_Município').agg({
-    'Município': 'first',
-    'CNPJ': 'nunique'
-}).reset_index().rename(columns={'CNPJ': 'Total'})
+@st.cache_data
+def get_ecv_credenciados(_ecv_df_24):
+    return _ecv_df_24.groupby('Id_Município').agg(
+        {'Município': 'first', 'CNPJ': 'nunique'}
+    ).reset_index().rename(columns={'CNPJ': 'Total'})
+
+@st.cache_data
+def get_vistoria_credenciados(_vistoria_df_24):
+    return _vistoria_df_24.groupby('Id_Município').agg(
+        {'Município': 'first', 'CNPJ': 'nunique'}
+    ).reset_index().rename(columns={'CNPJ': 'Total'})
+
+@st.cache_data
+def get_patio_credenciados(_patio_df_24):
+    return _patio_df_24.groupby('Id_Município').agg(
+        {'Município': 'first', 'CNPJ': 'nunique'}
+    ).reset_index().rename(columns={'CNPJ': 'Total'})
+
+cfc_credenciados = get_cfc_credenciados(cfc_df_24)
+clinicas_credenciadas = get_clinicas_credenciadas(clinicas_df_24)
+epiv_credenciados = get_epiv_credenciados(epiv_df_24)
+ecv_credenciados = get_ecv_credenciados(ecv_df_24)
+vistoria_credenciados = get_vistoria_credenciados(vistoria_df_24)
+patio_credenciados = get_patio_credenciados(patio_df_24)
+# --- End of Cached Credenciados Count DataFrames ---
 
 # Function to create a comprehensive popup HTML for a municipality
 def criar_popup_detalhado(municipio_nome):
@@ -1491,10 +1645,7 @@ def create_choropleth(data_df, title):
     bins = None
     choropleth_can_be_drawn = False
 
-    if visualization == 'Visão Geral':
-        choropleth_can_be_drawn = True # It's always drawable with a uniform color
-        bins = None # Explicitly set bins to None for Visão Geral
-    elif not df_for_bins_and_choropleth.empty and \
+    if not df_for_bins_and_choropleth.empty and \
        'Total' in df_for_bins_and_choropleth.columns and \
        not df_for_bins_and_choropleth['Total'].dropna().empty:
 
@@ -1515,7 +1666,9 @@ def create_choropleth(data_df, title):
                 calculated_bins_list = sorted(list(set([int(b) for b in raw_bin_points])))
 
                 # ColorBrewer scales (like 'YlOrRd') need a list of at least 3 bin edges, or an integer.
-                if len(calculated_bins_list) >= 3:
+                # If calculated_bins_list is used, len(calculated_bins_list) - 1 is the number of colors.
+                # So, len(calculated_bins_list) - 1 >= 3  =>  len(calculated_bins_list) >= 4.
+                if len(calculated_bins_list) >= 4:
                     bins = calculated_bins_list
                     choropleth_can_be_drawn = True
                 elif len(calculated_bins_list) == 2: # Only 2 unique points, not enough for a list for ColorBrewer.
@@ -1583,146 +1736,273 @@ def create_choropleth(data_df, title):
         elif visualization == 'CFCs':
             html += f"<p style='font-weight:500; margin-bottom:10px;'><b>Total de serviços:</b> {info['Total']:,.0f}</p>"
             if 'Cursos Teóricos' in info and 'Cursos Práticos' in info:
-                html += "<table style='width:100%; border-collapse:collapse; margin-top:10px; border:1px solid #dee2e6;'>"
-                html += "<tr style='background-color:#f8f9fa;'><th style='text-align:left; padding:8px; border:1px solid #dee2e6;'>Tipo</th><th style='text-align:right; padding:8px; border:1px solid #dee2e6;'>Quantidade</th></tr>"
-                html += f"<tr><td style='padding:8px; border:1px solid #dee2e6;'>Cursos Teóricos</td><td style='text-align:right; padding:8px; border:1px solid #dee2e6;'>{info['Cursos Teóricos']:,.0f}</td></tr>"
-                html += f"<tr><td style='padding:8px; border:1px solid #dee2e6;'>Cursos Práticos</td><td style='text-align:right; padding:8px; border:1px solid #dee2e6;'>{info['Cursos Práticos']:,.0f}</td></tr>"
+                html += "<table style='width:100%; border-collapse:collapse; margin-bottom:15px;'>"
+                html += "<tr style='background-color:#f5f5f5;'><th style='text-align:left; padding:8px; border:1px solid #ddd;'>Tipo de Serviço</th><th style='text-align:right; padding:8px; border:1px solid #ddd;'>Quantidade</th></tr>"
+                html += f"<tr><td style='padding:8px; border:1px solid #ddd;'>Cursos Teóricos</td><td style='text-align:right; padding:8px; border:1px solid #ddd;'>{info['Cursos Teóricos']:,.0f}</td></tr>"
+                html += f"<tr><td style='padding:8px; border:1px solid #ddd;'>Cursos Práticos</td><td style='text-align:right; padding:8px; border:1px solid #ddd;'>{info['Cursos Práticos']:,.0f}</td></tr>"
                 html += "</table>"
             
-            # Adicionar lista de CFCs
+            # Adicionar lista de CFCs com novo estilo de tabela
             municipio_norm = normaliza_nome(info['Município'])
             cfcs_no_municipio = cfc_df_24[cfc_df_24['Município CFC'].apply(normaliza_nome) == municipio_norm].drop_duplicates('CNPJ')
             if not cfcs_no_municipio.empty:
                 html += f"<div style='margin-top:15px;'>"
-                html += f"<h5 style='margin-bottom:8px; padding-bottom:5px; border-bottom:1px solid #dee2e6;'>CFCs no município ({len(cfcs_no_municipio)})</h5>"
-                html += "<div style='max-height:200px; overflow-y:auto; border:1px solid #dee2e6; border-radius:4px; padding:5px;'>"
-                html += "<ul style='padding-left:20px; margin:5px 0;'>"
-                for _, cfc in cfcs_no_municipio.iterrows():
-                    html += f"<li style='padding:3px 0;'>{cfc['Razão Social']}</li>"
-                html += "</ul></div></div>"
+                html += f"<h5 style='margin-top:15px; margin-bottom:8px;'>CFCs no município ({len(cfcs_no_municipio)})</h5>"
+                html += "<div style='max-height:150px; overflow-y:auto; border:1px solid #ddd; border-radius:4px; padding:10px;'>"
+                html += "<table style='width:100%; border-collapse:collapse;'>"
+                html += "<tr style='background-color:#f5f5f5;'>"
+                html += "<th style='text-align:left; padding:8px; border:1px solid #ddd;'>Razão Social</th>"
+                html += "<th style='text-align:left; padding:8px; border:1px solid #ddd;'>CNPJ</th>"
+                html += "<th style='text-align:right; padding:8px; border:1px solid #ddd;'>Total Serviços (Global)</th>"
+                html += "</tr>"
+                for _, cfc_row in cfcs_no_municipio.iterrows():
+                    cnpj_atual = cfc_row['CNPJ']
+                    razao_social_atual = cfc_row['Razão Social']
+                    total_servicos_df = cfc_total_servicos_global_por_cnpj[cfc_total_servicos_global_por_cnpj['CNPJ'] == cnpj_atual]
+                    total_servicos_valor = total_servicos_df['Total'].iloc[0] if not total_servicos_df.empty else 0
+                    html += f"<tr>"
+                    html += f"<td style='padding:8px; border:1px solid #ddd;'>{razao_social_atual}</td>"
+                    html += f"<td style='padding:8px; border:1px solid #ddd;'>{cnpj_atual}</td>"
+                    html += f"<td style='text-align:right; padding:8px; border:1px solid #ddd;'>{total_servicos_valor:,.0f}</td>"
+                    html += f"</tr>"
+                html += "</table></div></div>"
                 
         elif visualization == 'Clínicas':
             html += f"<p style='font-weight:500; margin-bottom:10px;'><b>Total de exames:</b> {info['Total']:,.0f}</p>"
             if 'Exames Médicos' in info and 'Exames Psicológicos' in info:
-                html += "<table style='width:100%; border-collapse:collapse; margin-top:10px; border:1px solid #dee2e6;'>"
-                html += "<tr style='background-color:#f8f9fa;'><th style='text-align:left; padding:8px; border:1px solid #dee2e6;'>Tipo</th><th style='text-align:right; padding:8px; border:1px solid #dee2e6;'>Quantidade</th></tr>"
-                html += f"<tr><td style='padding:8px; border:1px solid #dee2e6;'>Exames Médicos</td><td style='text-align:right; padding:8px; border:1px solid #dee2e6;'>{info['Exames Médicos']:,.0f}</td></tr>"
-                html += f"<tr><td style='padding:8px; border:1px solid #dee2e6;'>Exames Psicológicos</td><td style='text-align:right; padding:8px; border:1px solid #dee2e6;'>{info['Exames Psicológicos']:,.0f}</td></tr>"
+                html += "<table style='width:100%; border-collapse:collapse; margin-bottom:15px;'>"
+                html += "<tr style='background-color:#f5f5f5;'><th style='text-align:left; padding:8px; border:1px solid #ddd;'>Tipo de Exame</th><th style='text-align:right; padding:8px; border:1px solid #ddd;'>Quantidade</th></tr>"
+                html += f"<tr><td style='padding:8px; border:1px solid #ddd;'>Exames Médicos</td><td style='text-align:right; padding:8px; border:1px solid #ddd;'>{info['Exames Médicos']:,.0f}</td></tr>"
+                html += f"<tr><td style='padding:8px; border:1px solid #ddd;'>Exames Psicológicos</td><td style='text-align:right; padding:8px; border:1px solid #ddd;'>{info['Exames Psicológicos']:,.0f}</td></tr>"
                 html += "</table>"
             
-            # Adicionar lista de Clínicas
+            # Adicionar lista de Clínicas com novo estilo de tabela
             municipio_norm = normaliza_nome(info['Município'])
             clinicas_no_municipio = clinicas_df_24[clinicas_df_24['Município Clínica'].apply(normaliza_nome) == municipio_norm].drop_duplicates('CNPJ')
             if not clinicas_no_municipio.empty:
                 html += f"<div style='margin-top:15px;'>"
-                html += f"<h5 style='margin-bottom:8px; padding-bottom:5px; border-bottom:1px solid #dee2e6;'>Clínicas no município ({len(clinicas_no_municipio)})</h5>"
-                html += "<div style='max-height:200px; overflow-y:auto; border:1px solid #dee2e6; border-radius:4px; padding:5px;'>"
-                html += "<ul style='padding-left:20px; margin:5px 0;'>"
-                for _, clinica in clinicas_no_municipio.iterrows():
-                    html += f"<li style='padding:3px 0;'>{clinica['Razão Social']}</li>"
-                html += "</ul></div></div>"
+                html += f"<h5 style='margin-top:15px; margin-bottom:8px;'>Clínicas no município ({len(clinicas_no_municipio)})</h5>"
+                html += "<div style='max-height:150px; overflow-y:auto; border:1px solid #ddd; border-radius:4px; padding:10px;'>"
+                html += "<table style='width:100%; border-collapse:collapse;'>"
+                html += "<tr style='background-color:#f5f5f5;'>"
+                html += "<th style='text-align:left; padding:8px; border:1px solid #ddd;'>Razão Social</th>"
+                html += "<th style='text-align:left; padding:8px; border:1px solid #ddd;'>CNPJ</th>"
+                html += "<th style='text-align:right; padding:8px; border:1px solid #ddd;'>Total Serviços (Global)</th>"
+                html += "</tr>"
+                for _, clinica_row in clinicas_no_municipio.iterrows():
+                    cnpj_atual = clinica_row['CNPJ']
+                    razao_social_atual = clinica_row['Razão Social']
+                    total_servicos_df = clinica_total_servicos_global_por_cnpj[clinica_total_servicos_global_por_cnpj['CNPJ'] == cnpj_atual]
+                    total_servicos_valor = total_servicos_df['Total'].iloc[0] if not total_servicos_df.empty else 0
+                    html += f"<tr>"
+                    html += f"<td style='padding:8px; border:1px solid #ddd;'>{razao_social_atual}</td>"
+                    html += f"<td style='padding:8px; border:1px solid #ddd;'>{cnpj_atual}</td>"
+                    html += f"<td style='text-align:right; padding:8px; border:1px solid #ddd;'>{total_servicos_valor:,.0f}</td>"
+                    html += f"</tr>"
+                html += "</table></div></div>"
                 
         elif visualization == 'EPIVs':
             html += f"<p style='font-weight:500; margin-bottom:10px;'><b>Total de estampagens:</b> {info['Total']:,.0f}</p>"
-            if 'Estampagem' in info:
-                html += f"<p>Serviços de estampagem: {info['Estampagem']:,.0f}</p>"
+            # REMOVED: if 'Estampagem' in info:
+            # REMOVED:     html += f"<p>Serviços de estampagem: {info['Estampagem']:,.0f}</p>"
             
-            # Adicionar lista de EPIVs
+            # Adicionar lista de EPIVs com estilo de tabela
             municipio_norm = normaliza_nome(info['Município'])
             epivs_no_municipio = epiv_df_24[epiv_df_24['Município'].apply(normaliza_nome) == municipio_norm].drop_duplicates('CNPJ')
             if not epivs_no_municipio.empty:
                 html += f"<div style='margin-top:15px;'>"
-                html += f"<h5 style='margin-bottom:8px; padding-bottom:5px; border-bottom:1px solid #dee2e6;'>EPIVs no município ({len(epivs_no_municipio)})</h5>"
-                html += "<div style='max-height:200px; overflow-y:auto; border:1px solid #dee2e6; border-radius:4px; padding:5px;'>"
-                html += "<ul style='padding-left:20px; margin:5px 0;'>"
-                for _, epiv in epivs_no_municipio.iterrows():
-                    html += f"<li style='padding:3px 0;'>{epiv['Razão Social']}</li>"
-                html += "</ul></div></div>"
+                html += f"<h5 style='margin-top:15px; margin-bottom:8px;'>EPIVs no município ({len(epivs_no_municipio)})</h5>"
+                html += "<div style='max-height:150px; overflow-y:auto; border:1px solid #ddd; border-radius:4px; padding:10px;'>"
+                html += "<table style='width:100%; border-collapse:collapse;'>"
+                html += "<tr style='background-color:#f5f5f5;'>"
+                html += "<th style='text-align:left; padding:8px; border:1px solid #ddd;'>Razão Social</th>"
+                html += "<th style='text-align:left; padding:8px; border:1px solid #ddd;'>CNPJ</th>"
+                html += "<th style='text-align:right; padding:8px; border:1px solid #ddd;'>Total Serviços (Global)</th>"
+                html += "</tr>"
+                for _, epiv_row in epivs_no_municipio.iterrows():
+                    cnpj_atual = epiv_row['CNPJ']
+                    razao_social_atual = epiv_row['Razão Social']
+                    total_servicos_df = epiv_total_servicos_global_por_cnpj[epiv_total_servicos_global_por_cnpj['CNPJ'] == cnpj_atual]
+                    total_servicos_valor = total_servicos_df['Total'].iloc[0] if not total_servicos_df.empty else 0
+                    html += f"<tr>"
+                    html += f"<td style='padding:8px; border:1px solid #ddd;'>{razao_social_atual}</td>"
+                    html += f"<td style='padding:8px; border:1px solid #ddd;'>{cnpj_atual}</td>"
+                    html += f"<td style='text-align:right; padding:8px; border:1px solid #ddd;'>{total_servicos_valor:,.0f}</td>"
+                    html += f"</tr>"
+                html += "</table></div></div>"
                 
         elif visualization in ['ECVs', 'Vistorias DETRAN']:
             html += f"<p style='font-weight:500; margin-bottom:10px;'><b>Total de vistorias:</b> {info['Total']:,.0f}</p>"
             
-            # Selecionar as colunas principais para exibição
-            colunas_vistoria = [
+            # Define the comprehensive list of all ECV/Vistoria service types
+            all_ecv_service_types = [
                 'Vistoria Lacrada Veículo 4 Rodas Até 16 Lugares ou Maior 3,5T',
+                'Vistoria Lacrada Veículo Carga PBT Mais 3,5T',
+                'Vistoria Lacrada Veículo Combinado Veículo P/Unidade',
+                'Vistoria Lacrada Veículo Passageiro com Lotação Acima de 16 Lugares',
                 'Vistoria Lacrada Veículo 2 ou 3 Rodas',
                 'Vistoria RENAVE de Veículo 4 Rodas 16 Lugares ou Até 3,5 Ton',
                 'Vistoria RENAVE de Veículos de 2 e 3 Rodas',
+                'Vistoria Veículo Carga com PBT Acima de 3,5T',
+                'Vistoria Veicular de Combinações de Veículos por Unidade',
                 'Vistoria Veículo 2 ou 3 Rodas',
-                'Vistoria Veículo 4 Rodas Até 16 Lugares ou Até 3,5 Ton'
+                'Vistoria Veículo 4 Rodas Até 16 Lugares ou Até 3,5 Ton',
+                'Vistoria Veículo Passageiros com Capacidade Acima de 16 Lugares',
+                'Outras'
             ]
             
-            # Criar tabela com as principais vistorias
-            html += "<table style='width:100%; border-collapse:collapse; margin-top:10px; border:1px solid #dee2e6;'>"
-            html += "<tr style='background-color:#f8f9fa;'><th style='text-align:left; padding:8px; border:1px solid #dee2e6;'>Tipo de Vistoria</th><th style='text-align:right; padding:8px; border:1px solid #dee2e6;'>Quantidade</th></tr>"
+            # Criar tabela com as vistorias e suas quantidades
+            html += "<table style='width:100%; border-collapse:collapse; margin-bottom:15px;'>"
+            html += "<tr style='background-color:#f5f5f5;'><th style='text-align:left; padding:8px; border:1px solid #ddd;'>Tipo de Vistoria</th><th style='text-align:right; padding:8px; border:1px solid #ddd;'>Quantidade</th></tr>"
             
-            for col in colunas_vistoria:
-                if col in info and info[col] > 0:
+            for col in all_ecv_service_types: # Iterate over the comprehensive list
+                if col in info and pd.notna(info[col]) and info[col] > 0:
                     # Nome simplificado para a tabela
                     nome_curto = col.replace('Vistoria ', '').replace('Veículo ', '')
-                    if len(nome_curto) > 30:
-                        nome_curto = nome_curto[:27] + '...'
-                    html += f"<tr><td style='padding:8px; border:1px solid #dee2e6;'>{nome_curto}</td><td style='text-align:right; padding:8px; border:1px solid #dee2e6;'>{info[col]:,.0f}</td></tr>"
+                    if len(nome_curto) > 40: # Adjusted length for better readability
+                        nome_curto = nome_curto[:37] + '...'
+                    html += f"<tr><td style='padding:8px; border:1px solid #ddd;'>{nome_curto}</td><td style='text-align:right; padding:8px; border:1px solid #ddd;'>{info[col]:,.0f}</td></tr>"
             html += "</table>"
             
-            # Adicionar lista de ECVs ou Vistorias DETRAN
+            # Adicionar lista de ECVs ou Vistorias DETRAN com estilo de tabela
+            municipio_norm = normaliza_nome(info['Município'])
+            entities_df = pd.DataFrame()
+            global_totals_df = pd.DataFrame()
+            list_title = ""
+
             if visualization == 'ECVs':
-                municipio_norm = normaliza_nome(info['Município'])
-                ecvs_no_municipio = ecv_df_24[ecv_df_24['Município'].apply(normaliza_nome) == municipio_norm].drop_duplicates('CNPJ')
-                if not ecvs_no_municipio.empty:
-                    html += f"<div style='margin-top:15px;'>"
-                    html += f"<h5 style='margin-bottom:8px; padding-bottom:5px; border-bottom:1px solid #dee2e6;'>ECVs no município ({len(ecvs_no_municipio)})</h5>"
-                    html += "<div style='max-height:200px; overflow-y:auto; border:1px solid #dee2e6; border-radius:4px; padding:5px;'>"
-                    html += "<ul style='padding-left:20px; margin:5px 0;'>"
-                    for _, ecv in ecvs_no_municipio.iterrows():
-                        html += f"<li style='padding:3px 0;'>{ecv['Razão Social']}</li>"
-                    html += "</ul></div></div>"
+                entities_df = ecv_df_24[ecv_df_24['Município'].apply(normaliza_nome) == municipio_norm].drop_duplicates('CNPJ')
+                global_totals_df = ecv_total_servicos_global_por_cnpj
+                list_title = f"ECVs no município ({len(entities_df)})"
+            elif visualization == 'Vistorias DETRAN': # Vistorias DETRAN might be direct or by credenciados
+                # Assuming vistoria_df_24 contains credenciado info similar to ecv_df_24 for this part
+                entities_df = vistoria_df_24[vistoria_df_24['Município'].apply(normaliza_nome) == municipio_norm]
+                if 'CNPJ' in entities_df.columns: # Only proceed if CNPJ column exists to avoid errors
+                    entities_df = entities_df.drop_duplicates('CNPJ')
+                else: # If no CNPJ, we can't list by CNPJ, so clear the df
+                    entities_df = pd.DataFrame()
+                global_totals_df = vistoria_total_servicos_global_por_cnpj
+                list_title = f"Entidades de Vistoria DETRAN no município ({len(entities_df)})"
+
+            if not entities_df.empty and 'CNPJ' in entities_df.columns and 'Razão Social' in entities_df.columns:
+                html += f"<div style='margin-top:15px;'>"
+                html += f"<h5 style='margin-top:15px; margin-bottom:8px;'>{list_title}</h5>"
+                html += "<div style='max-height:150px; overflow-y:auto; border:1px solid #ddd; border-radius:4px; padding:10px;'>"
+                html += "<table style='width:100%; border-collapse:collapse;'>"
+                html += "<tr style='background-color:#f5f5f5;'>"
+                html += "<th style='text-align:left; padding:8px; border:1px solid #ddd;'>Razão Social</th>"
+                html += "<th style='text-align:left; padding:8px; border:1px solid #ddd;'>CNPJ</th>"
+                html += "<th style='text-align:right; padding:8px; border:1px solid #ddd;'>Total Serviços (Global)</th>"
+                html += "</tr>"
+                for _, entity_row in entities_df.iterrows():
+                    cnpj_atual = entity_row['CNPJ']
+                    razao_social_atual = entity_row['Razão Social']
+                    total_servicos_val = 0
+                    if not global_totals_df.empty and 'CNPJ' in global_totals_df.columns and 'Total' in global_totals_df.columns:
+                        total_servicos_series = global_totals_df[global_totals_df['CNPJ'] == cnpj_atual]['Total']
+                        if not total_servicos_series.empty:
+                            total_servicos_val = total_servicos_series.iloc[0]
+                    html += f"<tr>"
+                    html += f"<td style='padding:8px; border:1px solid #ddd;'>{razao_social_atual}</td>"
+                    html += f"<td style='padding:8px; border:1px solid #ddd;'>{cnpj_atual}</td>"
+                    html += f"<td style='text-align:right; padding:8px; border:1px solid #ddd;'>{total_servicos_val:,.0f}</td>"
+                    html += f"</tr>"
+                html += "</table></div></div>"
+            elif visualization == 'Vistorias DETRAN' and entities_df.empty:
+                 html += "<p style='font-size:0.9em; color:#555; margin-top:10px;'>Vistorias podem ser realizadas diretamente pelo DETRAN ou informações de Razão Social/CNPJ não estão disponíveis para listagem detalhada aqui.</p>"
                     
         elif visualization == 'Pátios':
             html += f"<p style='font-weight:500; margin-bottom:10px;'><b>Total de veículos removidos:</b> {info['Total']:,.0f}</p>"
-            if 'Veículos removidos' in info:
-                html += f"<p>Serviços de remoção: {info['Veículos removidos']:,.0f}</p>"
+            # REMOVED: if 'Veículos removidos' in info:
+            # REMOVED:     html += f"<p>Serviços de remoção: {info['Veículos removidos']:,.0f}</p>"
             
-            # Adicionar lista de Pátios
+            # Adicionar lista de Pátios com estilo de tabela
             municipio_norm = normaliza_nome(info['Município'])
             patios_no_municipio = patio_df_24[patio_df_24['Município'].apply(normaliza_nome) == municipio_norm].drop_duplicates('CNPJ')
             if not patios_no_municipio.empty:
                 html += f"<div style='margin-top:15px;'>"
-                html += f"<h5 style='margin-bottom:8px; padding-bottom:5px; border-bottom:1px solid #dee2e6;'>Pátios no município ({len(patios_no_municipio)})</h5>"
-                html += "<div style='max-height:200px; overflow-y:auto; border:1px solid #dee2e6; border-radius:4px; padding:5px;'>"
-                html += "<ul style='padding-left:20px; margin:5px 0;'>"
-                for _, patio in patios_no_municipio.iterrows():
-                    html += f"<li style='padding:3px 0;'>{patio['Razão Social']}</li>"
-                html += "</ul></div></div>"
+                html += f"<h5 style='margin-top:15px; margin-bottom:8px;'>Pátios no município ({len(patios_no_municipio)})</h5>"
+                html += "<div style='max-height:150px; overflow-y:auto; border:1px solid #ddd; border-radius:4px; padding:10px;'>"
+                html += "<table style='width:100%; border-collapse:collapse;'>"
+                html += "<tr style='background-color:#f5f5f5;'>"
+                html += "<th style='text-align:left; padding:8px; border:1px solid #ddd;'>Razão Social</th>"
+                html += "<th style='text-align:left; padding:8px; border:1px solid #ddd;'>CNPJ</th>"
+                html += "<th style='text-align:right; padding:8px; border:1px solid #ddd;'>Total Serviços (Global)</th>"
+                html += "</tr>"
+                for _, patio_row in patios_no_municipio.iterrows():
+                    cnpj_atual = patio_row['CNPJ']
+                    razao_social_atual = patio_row['Razão Social']
+                    total_servicos_df = patio_total_servicos_global_por_cnpj[patio_total_servicos_global_por_cnpj['CNPJ'] == cnpj_atual]
+                    total_servicos_valor = total_servicos_df['Total'].iloc[0] if not total_servicos_df.empty else 0
+                    html += f"<tr>"
+                    html += f"<td style='padding:8px; border:1px solid #ddd;'>{razao_social_atual}</td>"
+                    html += f"<td style='padding:8px; border:1px solid #ddd;'>{cnpj_atual}</td>"
+                    html += f"<td style='text-align:right; padding:8px; border:1px solid #ddd;'>{total_servicos_valor:,.0f}</td>"
+                    html += f"</tr>"
+                html += "</table></div></div>"
                 
         # Visualizações de quantidade de credenciados
         elif 'Quantidade de' in visualization:
-            tipo_credenciado = visualization.replace('Quantidade de ', '')
+            tipo_credenciado = visualization.replace('Quantidade de ', '') # e.g., "CFCs", "Clínicas"
+            # info['Total'] here comes from the *credenciados dataframes (e.g., cfc_credenciados['Total'] which is count of CNPJs)
             html += f"<p style='font-weight:500; margin-bottom:10px;'><b>Total de {tipo_credenciado}:</b> {info['Total']:,.0f}</p>"
             
-            # Adicionar lista de credenciados específica para cada tipo
+            municipio_norm = normaliza_nome(info['Município'])
+            
+            entities_df = pd.DataFrame()
+            global_totals_df = pd.DataFrame()
+            municipality_column_name = 'Município' # Default for EPIV, ECV, Vistoria, Pátio
+            list_title_prefix = tipo_credenciado
+
             if tipo_credenciado == 'CFCs':
-                municipio_norm = normaliza_nome(info['Município'])
-                cfcs_no_municipio = cfc_df_24[cfc_df_24['Município CFC'].apply(normaliza_nome) == municipio_norm].drop_duplicates('CNPJ')
-                if not cfcs_no_municipio.empty:
-                    html += f"<div style='margin-top:15px;'>"
-                    html += f"<h5 style='margin-bottom:8px; padding-bottom:5px; border-bottom:1px solid #dee2e6;'>Lista de CFCs</h5>"
-                    html += "<div style='max-height:300px; overflow-y:auto; border:1px solid #dee2e6; border-radius:4px; padding:5px;'>"
-                    html += "<ul style='padding-left:20px; margin:5px 0;'>"
-                    for _, cfc in cfcs_no_municipio.iterrows():
-                        html += f"<li style='padding:3px 0;'>{cfc['Razão Social']}</li>"
-                    html += "</ul></div></div>"
+                entities_df = cfc_df_24[cfc_df_24['Município CFC'].apply(normaliza_nome) == municipio_norm].drop_duplicates('CNPJ')
+                global_totals_df = cfc_total_servicos_global_por_cnpj
+                municipality_column_name = 'Município CFC' # Specific to cfc_df_24 structure for municipality name
             elif tipo_credenciado == 'Clínicas':
-                municipio_norm = normaliza_nome(info['Município'])
-                clinicas_no_municipio = clinicas_df_24[clinicas_df_24['Município Clínica'].apply(normaliza_nome) == municipio_norm].drop_duplicates('CNPJ')
-                if not clinicas_no_municipio.empty:
-                    html += f"<div style='margin-top:15px;'>"
-                    html += f"<h5 style='margin-bottom:8px; padding-bottom:5px; border-bottom:1px solid #dee2e6;'>Lista de Clínicas</h5>"
-                    html += "<div style='max-height:300px; overflow-y:auto; border:1px solid #dee2e6; border-radius:4px; padding:5px;'>"
-                    html += "<ul style='padding-left:20px; margin:5px 0;'>"
-                    for _, clinica in clinicas_no_municipio.iterrows():
-                        html += f"<li style='padding:3px 0;'>{clinica['Razão Social']}</li>"
-                    html += "</ul></div></div>"
+                entities_df = clinicas_df_24[clinicas_df_24['Município Clínica'].apply(normaliza_nome) == municipio_norm].drop_duplicates('CNPJ')
+                global_totals_df = clinica_total_servicos_global_por_cnpj
+                municipality_column_name = 'Município Clínica' # Specific to clinicas_df_24
+            elif tipo_credenciado == 'EPIVs':
+                entities_df = epiv_df_24[epiv_df_24['Município'].apply(normaliza_nome) == municipio_norm].drop_duplicates('CNPJ')
+                global_totals_df = epiv_total_servicos_global_por_cnpj
+            elif tipo_credenciado == 'ECVs':
+                entities_df = ecv_df_24[ecv_df_24['Município'].apply(normaliza_nome) == municipio_norm].drop_duplicates('CNPJ')
+                global_totals_df = ecv_total_servicos_global_por_cnpj
+            elif tipo_credenciado == 'Vistorias DETRAN': # Assuming this means entities performing vistorias
+                entities_df = vistoria_df_24[vistoria_df_24['Município'].apply(normaliza_nome) == municipio_norm].drop_duplicates('CNPJ')
+                global_totals_df = vistoria_total_servicos_global_por_cnpj
+                list_title_prefix = "Entidades de Vistoria DETRAN" # More descriptive title
+            elif tipo_credenciado == 'Pátios':
+                entities_df = patio_df_24[patio_df_24['Município'].apply(normaliza_nome) == municipio_norm].drop_duplicates('CNPJ')
+                global_totals_df = patio_total_servicos_global_por_cnpj
+
+            if not entities_df.empty:
+                html += f"<div style='margin-top:15px;'>"
+                # Use list_title_prefix for the heading
+                html += f"<h5 style='margin-top:15px; margin-bottom:8px;'>{list_title_prefix} no município ({len(entities_df)})</h5>"
+                html += "<div style='max-height:150px; overflow-y:auto; border:1px solid #ddd; border-radius:4px; padding:10px;'>"
+                html += "<table style='width:100%; border-collapse:collapse;'>"
+                html += "<tr style='background-color:#f5f5f5;'>"
+                html += "<th style='text-align:left; padding:8px; border:1px solid #ddd;'>Razão Social</th>"
+                html += "<th style='text-align:left; padding:8px; border:1px solid #ddd;'>CNPJ</th>"
+                html += "<th style='text-align:right; padding:8px; border:1px solid #ddd;'>Total Serviços (Global)</th>"
+                html += "</tr>"
+                for _, entity_row in entities_df.iterrows():
+                    cnpj_atual = entity_row['CNPJ']
+                    razao_social_atual = entity_row['Razão Social']
+                    
+                    total_servicos_val = 0 # Default
+                    if not global_totals_df.empty and 'CNPJ' in global_totals_df.columns and 'Total' in global_totals_df.columns:
+                        total_servicos_series = global_totals_df[global_totals_df['CNPJ'] == cnpj_atual]['Total']
+                        if not total_servicos_series.empty:
+                            total_servicos_val = total_servicos_series.iloc[0]
+                            
+                    html += f"<tr>"
+                    html += f"<td style='padding:8px; border:1px solid #ddd;'>{razao_social_atual}</td>"
+                    html += f"<td style='padding:8px; border:1px solid #ddd;'>{cnpj_atual}</td>"
+                    html += f"<td style='text-align:right; padding:8px; border:1px solid #ddd;'>{total_servicos_val:,.0f}</td>"
+                    html += f"</tr>"
+                html += "</table></div></div>"
             
         html += "</div></div>"
         return html
@@ -1747,7 +2027,7 @@ def create_choropleth(data_df, title):
         ).add_to(m)
         # Note: The generic GeoJson layer added later handles tooltips/popups for all views, including Visão Geral.
 
-    elif choropleth_can_be_drawn and bins is not None: # Existing logic for other views
+    if choropleth_can_be_drawn and bins is not None: # Existing logic for other views
         folium.Choropleth(
             geo_data=geojson_data,
             name=title,
@@ -1793,13 +2073,13 @@ def create_choropleth(data_df, title):
             'fillOpacity': 0
         },
         tooltip=folium.GeoJsonTooltip(
-            fields=['name'], # Apenas o nome do município
-            aliases=['Município:'], # Alias correspondente
+            fields=['name', 'valor'], # Apenas o nome do município e o valor
+            aliases=['Município:', title], # Alias correspondente, usando o título da visualização para o valor
             labels=True,
             sticky=True,
             # Style for larger size and better readability - MATCHING REGION MAP
             style=("background-color: white; color: #333; font-family: sans-serif; font-size: 14px; "
-                   "border: 1px solid #bbb; border-radius: 3px; padding: 10px; min-width: 150px; " # Adjusted min-width
+                   "border: 1px solid #bbb; border-radius: 3px; padding: 10px; min-width: 220px; " # Adjusted min-width
                    "box-shadow: 2px 2px 5px rgba(0,0,0,0.2);"),
             localize=True,
             parse_html=True,
@@ -1951,13 +2231,13 @@ def create_choropleth(data_df, title):
 if tipo_mapa == 'Mapa de Regiões':
     # Criar um dicionário para mapear municípios para regiões
     municipio_para_regiao = {}
-    for regiao, municipios in regioes_ba.items():
-        for municipio in municipios:
+    for regiao, municipios_regiao in regioes_ba.items(): # Renamed 'municipios' to 'municipios_regiao'
+        for municipio_item in municipios_regiao: # Renamed 'municipio' to 'municipio_item'
             # Normalizar o nome para garantir correspondência consistente
-            municipio_norm = normaliza_nome(municipio)
+            municipio_norm = normaliza_nome(municipio_item)
             municipio_para_regiao[municipio_norm] = regiao
             # Também armazenar a versão original para backup
-            municipio_para_regiao[municipio] = regiao
+            municipio_para_regiao[municipio_item] = regiao
 
     # Adicionar a coluna de região ao DataFrame
     frota_grouped['Regiao'] = frota_grouped['Município'].apply(
@@ -1966,9 +2246,10 @@ if tipo_mapa == 'Mapa de Regiões':
     )
 
     # Special handling for Dias d'Ávila
-    dias_avila_mask = frota_grouped['Município'].apply(lambda x: 'DIAS' in x.upper() and ('AVILA' in x.upper() or 'ÁVILA' in x.upper()))
-    if dias_avila_mask.any():
-        frota_grouped.loc[dias_avila_mask, 'Regiao'] = 'Regiâo Metropolitana de Salvador'
+    dias_avila_mask_frota = frota_grouped['Município'].apply(lambda x: 'DIAS' in str(x).upper() and ('AVILA' in str(x).upper() or 'ÁVILA' in str(x).upper())) # Unique mask name
+    if dias_avila_mask_frota.any(): # Use unique mask name
+        frota_grouped.loc[dias_avila_mask_frota, 'Regiao'] = 'Regiâo Metropolitana de Salvador'
+
 
     # Agrupar por região
     regioes_grouped = frota_grouped.groupby('Regiao').agg({
@@ -1994,7 +2275,7 @@ if tipo_mapa == 'Mapa de Regiões':
 
     # Map visualization selection to the correct dataframe and label
     vis_mapping = {
-        'Visão Geral': (frota_grouped, 'Dados'),
+        'Visão Geral': (populacao_df_for_regions, 'População'), # Use populacao_df_for_regions which has 'Total' as population
         'Frota de Veículos': (frota_grouped, 'Total Veículos'),
         'CFCs': (cfc_grouped, 'Serviços CFCs'),
         'Clínicas': (clinicas_grouped, 'Exames Clínicas'),
@@ -2014,24 +2295,26 @@ if tipo_mapa == 'Mapa de Regiões':
         vis_df, vis_label_prefix = vis_mapping[visualization]
         if vis_df is not None and 'Município' in vis_df.columns and vis_value_col in vis_df.columns:
             # Ensure Id_Município is string for potential future use, though we key by name here
-            vis_df['Id_Município'] = vis_df['Id_Município'].astype(str)
+            vis_df_copy = vis_df.copy() # Work on a copy
+            vis_df_copy['Id_Município'] = vis_df_copy['Id_Município'].astype(str)
             
             # Fix Dias d'Ávila in the visualization dataframe
-            dias_avila_mask = vis_df['Município'].apply(lambda x: 'DIAS' in str(x).upper() and ('AVILA' in str(x).upper() or 'ÁVILA' in str(x).upper()))
-            if dias_avila_mask.any():
-                vis_df.loc[dias_avila_mask, 'Município'] = "DIAS D'ÁVILA"
+            dias_avila_mask_vis = vis_df_copy['Município'].apply(lambda x: 'DIAS' in str(x).upper() and ('AVILA' in str(x).upper() or 'ÁVILA' in str(x).upper())) # Unique mask name
+            if dias_avila_mask_vis.any(): # Use unique mask name
+                vis_df_copy.loc[dias_avila_mask_vis, 'Município'] = "DIAS D'ÁVILA"
             
             # Create dict mapping normalized name to the value
-            vis_data_dict = vis_df.set_index(vis_df['Município'].apply(normaliza_nome))[vis_value_col].to_dict()
+            vis_data_dict = vis_df_copy.set_index(vis_df_copy['Município'].apply(normaliza_nome))[vis_value_col].to_dict()
             
             # Also add a special key for Dias d'Ávila to ensure it's found
-            dias_davila_data = vis_df[vis_df['Município'].apply(lambda x: 'DIAS' in str(x).upper() and ('AVILA' in str(x).upper() or 'ÁVILA' in str(x).upper()))]
+            dias_davila_data = vis_df_copy[vis_df_copy['Município'].apply(lambda x: 'DIAS' in str(x).upper() and ('AVILA' in str(x).upper() or 'ÁVILA' in str(x).upper()))]
             if not dias_davila_data.empty:
                 # Add multiple variations of the name for lookup
-                vis_data_dict['dias davila'] = dias_davila_data[vis_value_col].iloc[0]
-                vis_data_dict['dias d avila'] = dias_davila_data[vis_value_col].iloc[0]
-                vis_data_dict['dias davila'] = dias_davila_data[vis_value_col].iloc[0]
-                vis_data_dict["dias d'avila"] = dias_davila_data[vis_value_col].iloc[0]
+                dias_davila_value = dias_davila_data[vis_value_col].iloc[0]
+                vis_data_dict['dias davila'] = dias_davila_value
+                vis_data_dict['dias d avila'] = dias_davila_value
+                # vis_data_dict['dias davila'] = dias_davila_data[vis_value_col].iloc[0] # Duplicate key
+                vis_data_dict["dias d'avila"] = dias_davila_value
         else:
             # Handle cases where the expected columns aren't present or df is None
             st.warning(f"Dados para '{visualization}' não puderam ser carregados corretamente para o tooltip.")
@@ -2058,15 +2341,19 @@ if tipo_mapa == 'Mapa de Regiões':
 
         # Get visualization value with special handling for Dias d'Ávila
         vis_value = 'N/A'
-        if 'DIAS' in municipio_upper and ('AVILA' in municipio_upper or 'ÁVILA' in municipio_upper):
-            # Try multiple key variants for Dias d'Ávila
-            for key in ['dias davila', 'dias d avila', "dias d'avila"]:
-                if key in vis_data_dict:
-                    vis_value = vis_data_dict[key]
+        # Try normalized GeoJSON name first for Dias d'Ávila, then specific variations
+        dias_avila_norm_keys = ['dias davila', 'dias d avila', "dias d'avila"]
+        found_dias_avila = False
+        if municipio_norm in dias_avila_norm_keys: # Check if the current feature is Dias d'Avila
+            for key_da in dias_avila_norm_keys:
+                 if key_da in vis_data_dict:
+                    vis_value = vis_data_dict[key_da]
+                    found_dias_avila = True
                     break
-        else:
-            vis_value = vis_data_dict.get(municipio_norm, 'N/A')
         
+        if not found_dias_avila: # If not Dias d'Avila or not found through special keys
+            vis_value = vis_data_dict.get(municipio_norm, 'N/A')
+
         # Format numeric values
         if isinstance(vis_value, (int, float, np.number)):
             vis_value_formatted = f"{vis_value:,.0f}"
@@ -2076,13 +2363,14 @@ if tipo_mapa == 'Mapa de Regiões':
         # Construct tooltip HTML
         # Get population data safely using the GeoJSON municipality ID
         current_mun_id_geojson = str(feature['properties']['id'])
-        pop_data_series = populacao_df.loc[populacao_df['Id_Município'] == current_mun_id_geojson, 'População']
+        # Use populacao_df_for_regions for consistency in "Mapa de Regiões" tooltip for population
+        pop_data_series = populacao_df_for_regions.loc[populacao_df_for_regions['Id_Município'] == current_mun_id_geojson, 'Total'] # 'Total' is População here
         
         populacao_display_string = "N/A" # Default if not found or NaN
         if not pop_data_series.empty:
-            pop_value = pop_data_series.iloc[0]
-            if pd.notna(pop_value):
-                populacao_display_string = f"{pop_value:,.0f}"
+            pop_value_lookup = pop_data_series.iloc[0]
+            if pd.notna(pop_value_lookup):
+                populacao_display_string = f"{pop_value_lookup:,.0f}"
 
         tooltip_html = f"""<div style='line-height: 1.5;'>
             <strong>Município:</strong> {municipio_nome_geojson}<br>
@@ -2296,8 +2584,12 @@ if tipo_mapa == 'Mapa de Regiões':
             ).add_to(m)
 
 elif visualization == 'Visão Geral':
-    # For comprehensive view, use frota_grouped as a base for the choropleth
-    create_choropleth(frota_grouped, 'Visão Geral')
+    # For comprehensive view, use populacao_df (which is populacao_df_loaded.copy())
+    # Rename 'População' to 'Total' for create_choropleth's internal consistency
+    populacao_df_visao_geral = populacao_df.copy() # populacao_df is already a copy of loaded data
+    populacao_df_visao_geral = populacao_df_visao_geral.rename(columns={'População': 'Total'})
+    # The title for the choropleth layer and tooltip should be 'População'
+    create_choropleth(populacao_df_visao_geral, 'População')
 elif visualization == 'Frota de Veículos':
     # create_choropleth will use the global `municipios_selecionados` which may have been overridden by CFC/Clinic filters.
     create_choropleth(frota_grouped, 'Total de Veículos')
@@ -2433,7 +2725,7 @@ if visualization == 'Visão Geral':
         st.metric('Total de Veículos (Frota)', f"{frota_df_24['Total'].apply(pd.to_numeric, errors='coerce').sum():,.0f}")
         st.metric('Serviços CFCs', f"{cfc_grouped['Total'].apply(pd.to_numeric, errors='coerce').sum():,.0f}")
         st.metric('CFCs Credenciados', f"{cfc_credenciados['Total'].apply(pd.to_numeric, errors='coerce').sum():,.0f}")
-        st.metric('População Total (Estado)', f"{populacao_df['População'].sum():,.0f}")
+        st.metric('População Total (Estado)', f"{populacao_df['Total'].sum():,.0f}")
         
     with col2:
         st.metric('Exames Clínicas', f"{clinicas_grouped['Total'].apply(pd.to_numeric, errors='coerce').sum():,.0f}")

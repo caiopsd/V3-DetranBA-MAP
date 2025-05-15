@@ -740,6 +740,10 @@ for df in [cfc_grouped, clinicas_grouped, frota_grouped, epiv_grouped, ecv_group
 with open('data/geo-ba.json', 'r', encoding='utf-8') as f:
     geojson_data = json.load(f)
 
+# Define iframe dimensions before map creation
+iframe_width = 2000
+iframe_height = 800
+
 # Create the base map centered on Bahia
 m = folium.Map(
     location=[-12.5, -41.7],
@@ -752,7 +756,7 @@ m = folium.Map(
     doubleClickZoom=True,  # Permite zoom com duplo clique
     boxZoom=True,          # Permite zoom com caixa
     touchZoom=True,        # Permite zoom em dispositivos touch
-    height=1200
+    height=iframe_height # Use the defined iframe_height
 )
 
 # Calcule os limites da Bahia a partir do geojson
@@ -769,8 +773,7 @@ m.fit_bounds([[bounds[1], bounds[0]], [bounds[3], bounds[2]]])
 
 # Calcule a proporção do shape da Bahia
 aspect_ratio = (bounds[2] - bounds[0]) / (bounds[3] - bounds[1])
-iframe_width = 2000
-iframe_height = 800
+# iframe_width and iframe_height are now defined above the map
 
 # Add title and description
 st.title('Mapa Interativo do DETRAN-BA')
@@ -815,8 +818,10 @@ municipios_selecionados_geral = st.multiselect(
 # Variáveis para armazenar municípios selecionados por diferentes filtros
 municipios_cfc_razao = []  # Municípios selecionados via filtro CFC Razão Social
 municipios_cfc_cnpj = []   # Municípios selecionados via filtro CFC CNPJ
+municipios_cfc_cnpj_self_service = [] # Municípios CFC CNPJ onde Cidadão == CFC
 municipios_clinica_razao = []  # Municípios selecionados via filtro Clínica Razão Social
 municipios_clinica_cnpj = []   # Municípios selecionados via filtro Clínica CNPJ
+municipios_clinica_cnpj_self_service = [] # Municípios Clínica CNPJ onde Cidadão == Clínica
 
 # Create a selectbox for choosing the visualization - MOVED OUTSIDE CONDITIONAL
 visualization = st.selectbox(
@@ -883,8 +888,15 @@ if visualization == 'Quantidade de CFCs':
     if escolha_cnpj_cfc != 'Todos (CNPJ)':
         # Ao invés de sobrescrever municipios_selecionados, populamos municipios_cfc_cnpj
         municipios_cfc_cnpj = cfc_df_24[cfc_df_24['CNPJ'].astype(str) == escolha_cnpj_cfc]['Município Cidadão'].unique().tolist()
+        # LOGIC FOR SELF-SERVICE CFC
+        selected_cfc_data_for_self_service = cfc_df_24[cfc_df_24['CNPJ'].astype(str) == escolha_cnpj_cfc]
+        self_service_cfc_df = selected_cfc_data_for_self_service[
+            selected_cfc_data_for_self_service['Município Cidadão'] == selected_cfc_data_for_self_service['Município CFC']
+        ]
+        municipios_cfc_cnpj_self_service = self_service_cfc_df['Município Cidadão'].unique().tolist()
     else:
         municipios_cfc_cnpj = []
+        municipios_cfc_cnpj_self_service = [] # Reset
 
 elif visualization == 'Quantidade de Clínicas':
     col1_clinica, col2_clinica = st.columns(2)
@@ -906,16 +918,20 @@ elif visualization == 'Quantidade de Clínicas':
         )
 
     if escolha_razao_clinica != 'Todas (Razão Social)':
-        # Ao invés de sobrescrever municipios_selecionados, populamos municipios_clinica_razao
         municipios_clinica_razao = credenciados_clinica_df[credenciados_clinica_df['Nome'] == escolha_razao_clinica]['Município'].tolist()
     else:
         municipios_clinica_razao = []
 
     if escolha_cnpj_clinica != 'Todos (CNPJ)':
-        # Ao invés de sobrescrever municipios_selecionados, populamos municipios_clinica_cnpj
         municipios_clinica_cnpj = clinicas_df_24[clinicas_df_24['CNPJ'].astype(str) == escolha_cnpj_clinica]['Município Cidadão'].unique().tolist()
+        selected_clinica_data_for_self_service = clinicas_df_24[clinicas_df_24['CNPJ'].astype(str) == escolha_cnpj_clinica]
+        self_service_clinica_df = selected_clinica_data_for_self_service[
+            selected_clinica_data_for_self_service['Município Cidadão'] == selected_clinica_data_for_self_service['Município Clínica']
+        ]
+        municipios_clinica_cnpj_self_service = self_service_clinica_df['Município Cidadão'].unique().tolist()
     else:
         municipios_clinica_cnpj = []
+        municipios_clinica_cnpj_self_service = []
 
 # Função para ativar o destaque adequado para o credenciado selecionado
 # Esta função agora seleciona o conjunto de municípios apropriado com base na visualização e nas seleções
@@ -1457,10 +1473,6 @@ def criar_popup_detalhado(municipio_nome):
             html += "</table></div>"
         html += "</div>"
 
-    # REMOVED the old summary table for other services
-    # # 4. Outros serviços (EPIVs, ECVs, Vistorias, Pátios) - mostrar resumos
-    # ... (old code removed)
-
     html += "</div></div>" # Fechar div principal do popup
     return html
 
@@ -1666,8 +1678,6 @@ def create_choropleth(data_df, title):
                 
         elif visualization == 'EPIVs':
             html += f"<p style='font-weight:500; margin-bottom:10px;'><b>Total de estampagens:</b> {info['Total']:,.0f}</p>"
-            # REMOVED: if 'Estampagem' in info:
-            # REMOVED:     html += f"<p>Serviços de estampagem: {info['Estampagem']:,.0f}</p>"
             
             # Adicionar lista de EPIVs com estilo de tabela
             municipio_norm = normaliza_nome(info['Município'])
@@ -1707,7 +1717,7 @@ def create_choropleth(data_df, title):
                 'Vistoria RENAVE de Veículo 4 Rodas 16 Lugares ou Até 3,5 Ton',
                 'Vistoria RENAVE de Veículos de 2 e 3 Rodas',
                 'Vistoria Veículo Carga com PBT Acima de 3,5T',
-                'Vistoria Veicular de Combinações de Veículos por Unidade',
+                'Vistoria Veículo Combinado Veículo P/Unidade',
                 'Vistoria Veículo 2 ou 3 Rodas',
                 'Vistoria Veículo 4 Rodas Até 16 Lugares ou Até 3,5 Ton',
                 'Vistoria Veículo Passageiros com Capacidade Acima de 16 Lugares',
@@ -1776,8 +1786,6 @@ def create_choropleth(data_df, title):
                     
         elif visualization == 'Pátios':
             html += f"<p style='font-weight:500; margin-bottom:10px;'><b>Total de veículos removidos:</b> {info['Total']:,.0f}</p>"
-            # REMOVED: if 'Veículos removidos' in info:
-            # REMOVED:     html += f"<p>Serviços de remoção: {info['Veículos removidos']:,.0f}</p>"
             
             # Adicionar lista de Pátios com estilo de tabela
             municipio_norm = normaliza_nome(info['Município'])
@@ -1948,14 +1956,6 @@ def create_choropleth(data_df, title):
             parse_html=True,
             max_width=300,
         ),
-        popup=folium.GeoJsonPopup(
-            fields=['html_popup'],
-            aliases=[''],
-            labels=False,
-            style=("background-color: white; color: #333; font-size: 12px;"),
-            parse_html=True,
-            max_width=popup_max_w # Use the dynamic value here
-        ),
         highlight_function=lambda x: {'weight': 3, 'color': 'blue'},
     ).add_to(m)
 
@@ -2020,13 +2020,18 @@ def create_choropleth(data_df, title):
         nome2id_geojson = {normaliza_nome(f['properties']['name']): str(f['properties']['id']) for f in geojson_data['features']}
         # Gerar lista de IDs dos municípios selecionados
         mun_ids = [nome2id_geojson[n] for n in municipios_sel_norm if n in nome2id_geojson]
+        
         if mun_ids:
+            # Normalize self-service list for use in lambda
+            normalized_municipios_cfc_cnpj_self_service_local = set([normaliza_nome(m) for m in municipios_cfc_cnpj_self_service])
+            
             folium.GeoJson(
                 geojson_data,
                 name="Municípios Selecionados (CFC CNPJ)",
                 style_function=lambda x: {
                     'fillColor': 'transparent',
-                    'color': 'green',
+                    'color': ('cyan' if normaliza_nome(x['properties']['name']) in normalized_municipios_cfc_cnpj_self_service_local 
+                              else 'green'),
                     'weight': 3,
                     'fillOpacity': 0
                 } if str(x['properties']['id']) in mun_ids else {
@@ -2072,13 +2077,18 @@ def create_choropleth(data_df, title):
         nome2id_geojson = {normaliza_nome(f['properties']['name']): str(f['properties']['id']) for f in geojson_data['features']}
         # Gerar lista de IDs dos municípios selecionados
         mun_ids = [nome2id_geojson[n] for n in municipios_sel_norm if n in nome2id_geojson]
+
         if mun_ids:
+            # Normalize self-service list for use in lambda
+            normalized_municipios_clinica_cnpj_self_service_local = set([normaliza_nome(m) for m in municipios_clinica_cnpj_self_service])
+
             folium.GeoJson(
                 geojson_data,
                 name="Municípios Selecionados (Clínica CNPJ)",
                 style_function=lambda x: {
                     'fillColor': 'transparent',
-                    'color': 'orange',
+                    'color': ('magenta' if normaliza_nome(x['properties']['name']) in normalized_municipios_clinica_cnpj_self_service_local
+                              else 'orange'),
                     'weight': 3,
                     'fillOpacity': 0
                 } if str(x['properties']['id']) in mun_ids else {
@@ -2389,13 +2399,18 @@ if tipo_mapa == 'Mapa de Regiões':
         nome2id_geojson = {normaliza_nome(f['properties']['name']): str(f['properties']['id']) for f in geojson_data['features']}
         # Gerar lista de IDs dos municípios selecionados
         mun_ids = [nome2id_geojson[n] for n in municipios_sel_norm if n in nome2id_geojson]
+        
         if mun_ids:
+            # Normalize self-service list for use in lambda
+            normalized_municipios_cfc_cnpj_self_service_local = set([normaliza_nome(m) for m in municipios_cfc_cnpj_self_service])
+            
             folium.GeoJson(
                 geojson_data,
                 name="Municípios Selecionados (CFC CNPJ)",
                 style_function=lambda x: {
                     'fillColor': 'transparent',
-                    'color': 'green',
+                    'color': ('cyan' if normaliza_nome(x['properties']['name']) in normalized_municipios_cfc_cnpj_self_service_local 
+                              else 'green'),
                     'weight': 3,
                     'fillOpacity': 0
                 } if str(x['properties']['id']) in mun_ids else {
@@ -2441,13 +2456,18 @@ if tipo_mapa == 'Mapa de Regiões':
         nome2id_geojson = {normaliza_nome(f['properties']['name']): str(f['properties']['id']) for f in geojson_data['features']}
         # Gerar lista de IDs dos municípios selecionados
         mun_ids = [nome2id_geojson[n] for n in municipios_sel_norm if n in nome2id_geojson]
+
         if mun_ids:
+            # Normalize self-service list for use in lambda
+            normalized_municipios_clinica_cnpj_self_service_local = set([normaliza_nome(m) for m in municipios_clinica_cnpj_self_service])
+
             folium.GeoJson(
                 geojson_data,
                 name="Municípios Selecionados (Clínica CNPJ)",
                 style_function=lambda x: {
                     'fillColor': 'transparent',
-                    'color': 'orange',
+                    'color': ('magenta' if normaliza_nome(x['properties']['name']) in normalized_municipios_clinica_cnpj_self_service_local
+                              else 'orange'),
                     'weight': 3,
                     'fillOpacity': 0
                 } if str(x['properties']['id']) in mun_ids else {
@@ -2489,6 +2509,181 @@ elif visualization == 'Quantidade de Vistorias DETRAN':
     create_choropleth(vistoria_credenciados, 'Número de Vistorias DETRAN Credenciadas')
 elif visualization == 'Quantidade de Pátios':
     create_choropleth(patio_credenciados, 'Número de Pátios Credenciados')
+
+if visualization == 'Visão Geral':
+    dynamic_panel_width = "750px"
+    dynamic_panel_max_height = "500px"
+else:
+    dynamic_panel_width = "500px"
+    dynamic_panel_max_height = "400px"
+# --- Add custom HTML for fixed info panel and JavaScript for interactivity ---
+fixed_panel_html_css_js = """
+    <style>
+    #fixed-info-panel {
+        position: fixed;
+        bottom: 50px; /* Adjust as needed, considering other fixed elements like legends */
+        right: 50px; /* Adjust as needed */
+        width: {dynamic_panel_width}; /* Or your desired width */
+        max-height: {dynamic_panel_max_height}; /* Or your desired max height */
+        background-color: white;
+        border: 1px solid #ccc;
+        border-radius: 5px;
+        box-shadow: 0 2px 10px rgba(0,0,0,0.2);
+        z-index: 1001; /* Ensure it's above other elements like legends if necessary */
+        padding: 0;
+        display: none; /* Hidden by default, shown on click */
+        font-family: Arial, sans-serif;
+        font-size: 14px;
+    }
+    #fixed-info-panel-header {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        padding: 5px 10px;
+        background-color: #f0f0f0; /* Light grey header */
+        border-bottom: 1px solid #ccc;
+        cursor: move; /* Optional: if you want to make it draggable later */
+    }
+    #fixed-info-panel-title {
+        font-weight: bold;
+    }
+    #fixed-info-panel-close {
+        font-size: 20px;
+        font-weight: bold;
+        color: #888;
+        cursor: pointer;
+        padding: 0 5px;
+    }
+    #fixed-info-panel-close:hover {
+        color: #000;
+    }
+    #fixed-info-panel-content {
+        padding: 15px;
+        max-height: calc(400px - 30px - 30px); /* max-height - header_padding - content_padding */
+        overflow-y: auto;
+    }
+    #fixed-info-panel-content h3 {
+        margin-top: 0;
+        font-size: 1.1em;
+        padding-bottom: 10px;
+        border-bottom: 1px solid #eee;
+    }
+     /* Basic styling for tables within the panel */
+    #fixed-info-panel-content table {
+        width: 100%;
+        border-collapse: collapse;
+        margin-bottom: 10px;
+    }
+    #fixed-info-panel-content th, #fixed-info-panel-content td {
+        border: 1px solid #ddd;
+        padding: 6px;
+        text-align: left;
+        font-size: 0.9em;
+    }
+    #fixed-info-panel-content th {
+        background-color: #f2f2f2;
+    }
+    </style>
+
+<div id="fixed-info-panel">
+    <div id="fixed-info-panel-header">
+        <span id="fixed-info-panel-title">Detalhes do Município</span>
+        <span id="fixed-info-panel-close">&times;</span>
+    </div>
+    <div id="fixed-info-panel-content">
+        <!-- Content will be injected here by JavaScript -->
+        Clique em um município para ver os detalhes.
+    </div>
+</div>
+
+<script>
+    // Ensure this script runs after the map and its layers are fully loaded
+    // One way is to defer or wait for a map event, but Folium's structure might require direct manipulation
+    // of the map object if available, or a timeout for simplicity in this context.
+
+    function initializeFixedPanelListener() {
+        var map_instance = null;
+        // Try to find the map instance (this depends on how Folium names it)
+        // Often it's `map_ División por cero ` (with a unique ID)
+        // Or iterate through window objects that look like Leaflet maps
+        for (var k in window) {
+            if (window[k] instanceof L.Map) {
+                map_instance = window[k];
+                break;
+            }
+        }
+
+        if (map_instance) {
+            const panel = document.getElementById('fixed-info-panel');
+            const panelContent = document.getElementById('fixed-info-panel-content');
+            const panelTitle = document.getElementById('fixed-info-panel-title');
+            const closeButton = document.getElementById('fixed-info-panel-close');
+
+            if (closeButton) {
+                closeButton.onclick = function() {
+                    panel.style.display = 'none';
+                }
+            }
+
+            map_instance.eachLayer(function(layer) {
+                if (layer.feature && layer.feature.properties && layer.feature.properties.html_popup) {
+                    layer.on('click', function(e) {
+                        // Update panel title with municipality name if available
+                        if (e.target.feature.properties.name) {
+                            panelTitle.textContent = e.target.feature.properties.name;
+                        } else {
+                            panelTitle.textContent = 'Detalhes'; // Default title
+                        }
+
+                        if (e.target.feature.properties.html_popup) {
+                            panelContent.innerHTML = e.target.feature.properties.html_popup;
+                            panel.style.display = 'block';
+                        } else {
+                            panelContent.innerHTML = '<p>Detalhes não disponíveis para este município.</p>';
+                            panel.style.display = 'block';
+                        }
+                        L.DomEvent.stopPropagation(e); // Stop click from propagating to map
+                    });
+                }
+            });
+
+            map_instance.on('click', function(e) {
+                // Check if the click was on the map itself and not on a feature or the panel
+                let clickedOnFeature = false;
+                map_instance.eachLayer(function(layer) {
+                    // A more reliable way to check if a feature was clicked is to see if the event target is part of a layer
+                    // This is a simplified check; for complex scenarios, you might need to be more specific
+                    if (e.originalEvent.target === layer._path || (layer._icon && layer._icon.contains(e.originalEvent.target))) {
+                        if (layer.feature && layer.feature.properties && layer.feature.properties.html_popup) {
+                             clickedOnFeature = true;
+                        }
+                    }
+                });
+
+                // If the click was not on a feature that opens the panel, and not inside the panel itself
+                if (!clickedOnFeature && panel.style.display === 'block' && !panel.contains(e.originalEvent.target)) {
+                    panel.style.display = 'none'; // Hide if clicked outside
+                }
+            });
+
+            L.DomEvent.on(panel, 'click', L.DomEvent.stopPropagation);
+        } else {
+            console.error("Leaflet map instance not found for fixed panel.");
+            // Fallback: try again after a short delay
+            // setTimeout(initializeFixedPanelListener, 1000); // Be cautious with recursive timeouts
+        }
+    }
+
+    // Attempt to initialize after a delay to give map time to load.
+    // For a more robust solution, Folium might offer a way to hook into its rendering lifecycle.
+    if (document.readyState === 'complete') {
+        initializeFixedPanelListener();
+    } else {
+        window.addEventListener('load', initializeFixedPanelListener);
+    }
+</script>
+"""
+m.get_root().html.add_child(folium.Element(fixed_panel_html_css_js))
 
 # Display the map
 map_html = m._repr_html_()
@@ -2727,13 +2922,22 @@ if (municipios_selecionados_geral or municipios_cfc_razao or municipios_cfc_cnpj
         </p>
         '''
     
-    if municipios_cfc_cnpj:
+    if municipios_cfc_cnpj: # If any CFC CNPJ filter is active
+        # Standard green for general CFC (CNPJ)
         highlight_legend_html += f'''
         <p>
             <span style="color: green; font-size: 18px;">—</span>
             CFC (CNPJ)
         </p>
         '''
+        # If there are self-service ones specifically, add the cyan legend
+        if municipios_cfc_cnpj_self_service: 
+             highlight_legend_html += f'''
+             <p>
+                 <span style="color: cyan; font-size: 18px;">—</span>
+                 CFC (CNPJ - Sede no Município)
+             </p>
+             '''
     
     if municipios_clinica_razao:
         highlight_legend_html += f'''
@@ -2743,15 +2947,22 @@ if (municipios_selecionados_geral or municipios_cfc_razao or municipios_cfc_cnpj
         </p>
         '''
     
-    if municipios_clinica_cnpj:
+    if municipios_clinica_cnpj: # If any Clinica CNPJ filter is active
+        # Standard orange for general Clinica (CNPJ)
         highlight_legend_html += f'''
         <p>
             <span style="color: orange; font-size: 18px;">—</span>
             Clínica (CNPJ)
         </p>
         '''
+        # If there are self-service ones specifically, add the magenta legend
+        if municipios_clinica_cnpj_self_service:
+             highlight_legend_html += f'''
+             <p>
+                 <span style="color: magenta; font-size: 18px;">—</span>
+                 Clínica (CNPJ - Sede no Município)
+             </p>
+             '''
     
     highlight_legend_html += '</div>'
     m.get_root().html.add_child(folium.Element(highlight_legend_html))
-
-# Removed the duplicate map display that was here

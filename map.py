@@ -742,7 +742,7 @@ with open('data/geo-ba.json', 'r', encoding='utf-8') as f:
 
 # Define iframe dimensions before map creation
 iframe_width = 2000
-iframe_height = 800
+iframe_height = 600 # Reduced from 800
 
 # Create the base map centered on Bahia
 m = folium.Map(
@@ -2519,21 +2519,27 @@ else:
 # --- Add custom HTML for fixed info panel and JavaScript for interactivity ---
 fixed_panel_html_css_js = """
     <style>
-    #fixed-info-panel {
-        position: fixed;
-        bottom: 50px; /* Adjust as needed, considering other fixed elements like legends */
-        right: 50px; /* Adjust as needed */
-        width: {dynamic_panel_width}; /* Or your desired width */
-        max-height: {dynamic_panel_max_height}; /* Or your desired max height */
-        background-color: white;
+    /* Style for the Leaflet control container */
+    .leaflet-control-custominfo {
+        background: white;
         border: 1px solid #ccc;
         border-radius: 5px;
         box-shadow: 0 2px 10px rgba(0,0,0,0.2);
-        z-index: 1001; /* Ensure it's above other elements like legends if necessary */
         padding: 0;
-        display: none; /* Hidden by default, shown on click */
+        /* Initial size, will be adjusted by JS based on zoom */
+        width: 350px; 
+        max-height: 400px;
+        display: flex; 
+        flex-direction: column; 
         font-family: Arial, sans-serif;
         font-size: 14px;
+    }
+    /* Remove fixed positioning from #fixed-info-panel as Leaflet handles it */
+    #fixed-info-panel {
+        display: flex; 
+        flex-direction: column;
+        width: 100%; /* Fill the control container */
+        height: 100%; /* Fill the control container */
     }
     #fixed-info-panel-header {
         display: flex;
@@ -2559,8 +2565,8 @@ fixed_panel_html_css_js = """
     }
     #fixed-info-panel-content {
         padding: 15px;
-        max-height: calc(400px - 30px - 30px); /* max-height - header_padding - content_padding */
         overflow-y: auto;
+        flex-grow: 1; /* Added to take available space */
     }
     #fixed-info-panel-content h3 {
         margin-top: 0;
@@ -2585,27 +2591,10 @@ fixed_panel_html_css_js = """
     }
     </style>
 
-<div id="fixed-info-panel">
-    <div id="fixed-info-panel-header">
-        <span id="fixed-info-panel-title">Detalhes do Município</span>
-        <span id="fixed-info-panel-close">&times;</span>
-    </div>
-    <div id="fixed-info-panel-content">
-        <!-- Content will be injected here by JavaScript -->
-        Clique em um município para ver os detalhes.
-    </div>
-</div>
-
 <script>
     // Ensure this script runs after the map and its layers are fully loaded
-    // One way is to defer or wait for a map event, but Folium's structure might require direct manipulation
-    // of the map object if available, or a timeout for simplicity in this context.
-
     function initializeFixedPanelListener() {
         var map_instance = null;
-        // Try to find the map instance (this depends on how Folium names it)
-        // Often it's `map_ División por cero ` (with a unique ID)
-        // Or iterate through window objects that look like Leaflet maps
         for (var k in window) {
             if (window[k] instanceof L.Map) {
                 map_instance = window[k];
@@ -2614,75 +2603,118 @@ fixed_panel_html_css_js = """
         }
 
         if (map_instance) {
-            const panel = document.getElementById('fixed-info-panel');
-            const panelContent = document.getElementById('fixed-info-panel-content');
-            const panelTitle = document.getElementById('fixed-info-panel-title');
-            const closeButton = document.getElementById('fixed-info-panel-close');
+            // Define a base zoom level and corresponding panel size
+            const baseZoomForPanel = map_instance.getZoom(); // Or a fixed value like 7
+            const basePanelWidth = 500; // px - Increased from 350
+            const basePanelHeight = 400; // px
+            const minPanelWidth = 150;
+            const minPanelHeight = 100;
+            const maxPanelWidth = 700; // px - Increased from 600
+            const maxPanelHeight = 700;
 
-            if (closeButton) {
-                closeButton.onclick = function() {
-                    panel.style.display = 'none';
+
+            L.Control.CustomInfo = L.Control.extend({
+                onAdd: function(map) {
+                    this._div = L.DomUtil.create('div', 'leaflet-control-custominfo'); 
+                    this._div.innerHTML = `
+                        <div id="fixed-info-panel"> 
+                            <div id="fixed-info-panel-header">
+                                <span id="fixed-info-panel-title">Detalhes do Município</span>
+                                <span id="fixed-info-panel-close">&times;</span>
+                            </div>
+                            <div id="fixed-info-panel-content">
+                                Clique em um município para ver os detalhes.
+                            </div>
+                        </div>
+                    `;
+                    L.DomEvent.disableClickPropagation(this._div);
+                    L.DomEvent.disableScrollPropagation(this._div);
+
+                    const closeButton = this._div.querySelector('#fixed-info-panel-close');
+                    if (closeButton) {
+                        closeButton.onclick = () => {
+                            this._div.style.display = 'none';
+                        };
+                    }
+                    this._div.style.display = 'none'; 
+                    return this._div;
+                },
+
+                onRemove: function(map) { /* Nothing to do here */ },
+                
+                updateContent: function(htmlContent, newTitle) {
+                    const panelContent = this._div.querySelector('#fixed-info-panel-content');
+                    const panelTitle = this._div.querySelector('#fixed-info-panel-title');
+                    if (panelContent) panelContent.innerHTML = htmlContent;
+                    if (panelTitle) panelTitle.textContent = newTitle || 'Detalhes';
+                    this._div.style.display = 'block';
+                },
+
+                updateSize: function(map) {
+                    const currentZoom = map.getZoom();
+                    let scaleFactor = currentZoom / baseZoomForPanel;
+                    scaleFactor = Math.max(0.5, Math.min(scaleFactor, 2.0)); 
+
+                    let newWidth = Math.round(basePanelWidth * scaleFactor);
+                    let newHeight = Math.round(basePanelHeight * scaleFactor);
+
+                    newWidth = Math.max(minPanelWidth, Math.min(newWidth, maxPanelWidth));
+                    newHeight = Math.max(minPanelHeight, Math.min(newHeight, maxPanelHeight));
+                    
+                    if (this._div && this._div.style.display !== 'none') { 
+                        this._div.style.width = newWidth + 'px';
+                        this._div.style.maxHeight = newHeight + 'px'; 
+                    }
                 }
-            }
+            });
+
+            var customInfoControl = new L.Control.CustomInfo({ position: 'bottomright' });
+            map_instance.addControl(customInfoControl);
 
             map_instance.eachLayer(function(layer) {
                 if (layer.feature && layer.feature.properties && layer.feature.properties.html_popup) {
                     layer.on('click', function(e) {
-                        // Update panel title with municipality name if available
-                        if (e.target.feature.properties.name) {
-                            panelTitle.textContent = e.target.feature.properties.name;
-                        } else {
-                            panelTitle.textContent = 'Detalhes'; // Default title
-                        }
-
-                        if (e.target.feature.properties.html_popup) {
-                            panelContent.innerHTML = e.target.feature.properties.html_popup;
-                            panel.style.display = 'block';
-                        } else {
-                            panelContent.innerHTML = '<p>Detalhes não disponíveis para este município.</p>';
-                            panel.style.display = 'block';
-                        }
-                        L.DomEvent.stopPropagation(e); // Stop click from propagating to map
+                        const newTitle = e.target.feature.properties.name || 'Detalhes';
+                        customInfoControl.updateContent(e.target.feature.properties.html_popup, newTitle);
+                        customInfoControl.updateSize(map_instance); 
+                        L.DomEvent.stopPropagation(e);
                     });
                 }
             });
 
-            map_instance.on('click', function(e) {
-                // Check if the click was on the map itself and not on a feature or the panel
-                let clickedOnFeature = false;
-                map_instance.eachLayer(function(layer) {
-                    // A more reliable way to check if a feature was clicked is to see if the event target is part of a layer
-                    // This is a simplified check; for complex scenarios, you might need to be more specific
-                    if (e.originalEvent.target === layer._path || (layer._icon && layer._icon.contains(e.originalEvent.target))) {
-                        if (layer.feature && layer.feature.properties && layer.feature.properties.html_popup) {
-                             clickedOnFeature = true;
-                        }
-                    }
-                });
-
-                // If the click was not on a feature that opens the panel, and not inside the panel itself
-                if (!clickedOnFeature && panel.style.display === 'block' && !panel.contains(e.originalEvent.target)) {
-                    panel.style.display = 'none'; // Hide if clicked outside
+            map_instance.on('zoomend', function() {
+                if (customInfoControl._div.style.display !== 'none') { 
+                    customInfoControl.updateSize(map_instance);
                 }
             });
 
-            L.DomEvent.on(panel, 'click', L.DomEvent.stopPropagation);
+            map_instance.on('click', function(e) {
+                let clickedOnFeature = false;
+                map_instance.eachLayer(function(layer) {
+                    if (e.originalEvent.target === layer._path || (layer._icon && layer._icon.contains(e.originalEvent.target))) {
+                        if (layer.feature && layer.feature.properties && layer.feature.properties.html_popup) {
+                            clickedOnFeature = true;
+                        }
+                    }
+                });
+                if (!clickedOnFeature && customInfoControl._div.style.display !== 'none' && !customInfoControl._div.contains(e.originalEvent.target)) {
+                    customInfoControl._div.style.display = 'none';
+                }
+            });
+
         } else {
             console.error("Leaflet map instance not found for fixed panel.");
-            // Fallback: try again after a short delay
-            // setTimeout(initializeFixedPanelListener, 1000); // Be cautious with recursive timeouts
         }
     }
 
-    // Attempt to initialize after a delay to give map time to load.
-    // For a more robust solution, Folium might offer a way to hook into its rendering lifecycle.
     if (document.readyState === 'complete') {
         initializeFixedPanelListener();
     } else {
-        window.addEventListener('load', initializeFixedPanelListener);
+        document.addEventListener('DOMContentLoaded', initializeFixedPanelListener);
     }
 </script>
-"""
+""" # This terminates the string
+
 m.get_root().html.add_child(folium.Element(fixed_panel_html_css_js))
 
 # Display the map
@@ -2716,7 +2748,7 @@ st.markdown(
     '''
     <style>
     iframe {
-        height: 800px !important; /* Match Python iframe_height variable */
+        height: 600px !important; /* Match Python iframe_height variable */
         width: 100% !important;
         max-width: none !important;
         padding: 0px !important; /* Remove internal iframe padding */
@@ -2966,3 +2998,11 @@ if (municipios_selecionados_geral or municipios_cfc_razao or municipios_cfc_cnpj
     
     highlight_legend_html += '</div>'
     m.get_root().html.add_child(folium.Element(highlight_legend_html))
+
+st.markdown(
+    """
+    <style>
+    /* Add your custom styles here */
+    </style>
+    """
+)

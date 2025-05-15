@@ -2517,7 +2517,8 @@ else:
     dynamic_panel_width = "500px"
     dynamic_panel_max_height = "400px"
 # --- Add custom HTML for fixed info panel and JavaScript for interactivity ---
-fixed_panel_html_css_js = """
+# Separate HTML/CSS from JavaScript to avoid f-string issues with JS curly braces
+html_css_part = """
     <style>
     /* Style for the Leaflet control container */
     .leaflet-control-custominfo {
@@ -2540,6 +2541,7 @@ fixed_panel_html_css_js = """
         flex-direction: column;
         width: 100%; /* Fill the control container */
         height: 100%; /* Fill the control container */
+        /* overflow: hidden; --- REVERTED */
     }
     #fixed-info-panel-header {
         display: flex;
@@ -2566,7 +2568,8 @@ fixed_panel_html_css_js = """
     #fixed-info-panel-content {
         padding: 15px;
         overflow-y: auto;
-        flex-grow: 1; /* Added to take available space */
+        flex-grow: 1; /* Allow content to take available space */
+        /* height: 0; --- REVERTED */
     }
     #fixed-info-panel-content h3 {
         margin-top: 0;
@@ -2590,31 +2593,45 @@ fixed_panel_html_css_js = """
         background-color: #f2f2f2;
     }
     </style>
+"""
 
+javascript_part = f"""
 <script>
+    const currentVisualizationType = '{visualization}'; // Injected Python variable
+
     // Ensure this script runs after the map and its layers are fully loaded
-    function initializeFixedPanelListener() {
+    function initializeFixedPanelListener() {{
         var map_instance = null;
-        for (var k in window) {
-            if (window[k] instanceof L.Map) {
+        for (var k in window) {{
+            if (window[k] instanceof L.Map) {{
                 map_instance = window[k];
                 break;
-            }
-        }
+            }}
+        }}
 
-        if (map_instance) {
-            // Define a base zoom level and corresponding panel size
+        if (map_instance) {{
+            let basePanelWidth, basePanelHeight, minPanelWidth, minPanelHeight, maxPanelWidth, maxPanelHeight;
+
+            if (currentVisualizationType === 'Visão Geral') {{
+                basePanelWidth = 750; 
+                basePanelHeight = 520;
+                minPanelWidth = 750;
+                minPanelHeight = 520;
+                maxPanelWidth = 750; 
+                maxPanelHeight = 520;
+            }} else {{
+                basePanelWidth = 500; 
+                basePanelHeight = 400;
+                minPanelWidth = 500;
+                minPanelHeight = 400;
+                maxPanelWidth = 500; 
+                maxPanelHeight = 400;
+            }}
+            
             const baseZoomForPanel = map_instance.getZoom(); // Or a fixed value like 7
-            const basePanelWidth = 500; // px - Increased from 350
-            const basePanelHeight = 400; // px
-            const minPanelWidth = 150;
-            const minPanelHeight = 100;
-            const maxPanelWidth = 700; // px - Increased from 600
-            const maxPanelHeight = 700;
-
-
-            L.Control.CustomInfo = L.Control.extend({
-                onAdd: function(map) {
+            
+            L.Control.CustomInfo = L.Control.extend({{
+                onAdd: function(map) {{
                     this._div = L.DomUtil.create('div', 'leaflet-control-custominfo'); 
                     this._div.innerHTML = `
                         <div id="fixed-info-panel"> 
@@ -2630,90 +2647,105 @@ fixed_panel_html_css_js = """
                     L.DomEvent.disableClickPropagation(this._div);
                     L.DomEvent.disableScrollPropagation(this._div);
 
+                    // Store references to header and content
+                    this._headerElement = this._div.querySelector('#fixed-info-panel-header');
+                    this._contentElement = this._div.querySelector('#fixed-info-panel-content');
+
                     const closeButton = this._div.querySelector('#fixed-info-panel-close');
-                    if (closeButton) {
-                        closeButton.onclick = () => {
+                    if (closeButton) {{
+                        closeButton.onclick = () => {{
                             this._div.style.display = 'none';
-                        };
-                    }
+                        }};
+                    }}
                     this._div.style.display = 'none'; 
                     return this._div;
-                },
+                }},
 
-                onRemove: function(map) { /* Nothing to do here */ },
+                onRemove: function(map) {{ /* Nothing to do here */ }},
                 
-                updateContent: function(htmlContent, newTitle) {
-                    const panelContent = this._div.querySelector('#fixed-info-panel-content');
+                _calculateAndSetContentMaxHeight: function(currentPanelMaxHeight) {{ // Added argument
+                    if (this._div && this._headerElement && this._contentElement && this._div.style.display !== 'none') {{
+                        // Use the provided currentPanelMaxHeight instead of this._div.clientHeight
+                        const headerOffsetHeight = this._headerElement.offsetHeight;
+                        const contentPaddingVertical = 30; // 15px top + 15px bottom
+                        let newContentMaxHeight = currentPanelMaxHeight - headerOffsetHeight - contentPaddingVertical;
+                        if (newContentMaxHeight < 100) newContentMaxHeight = 100; // Ensure a more reasonable minimum content height
+                        this._contentElement.style.maxHeight = newContentMaxHeight + 'px';
+                    }}
+                }},
+
+                updateContent: function(htmlContent, newTitle) {{
+                    if (this._contentElement) this._contentElement.innerHTML = htmlContent;
                     const panelTitle = this._div.querySelector('#fixed-info-panel-title');
-                    if (panelContent) panelContent.innerHTML = htmlContent;
                     if (panelTitle) panelTitle.textContent = newTitle || 'Detalhes';
                     this._div.style.display = 'block';
-                },
+                    // Determine the correct maxPanelHeight based on currentVisualizationType for this call
+                    let currentMaxHeightForContentCalc = (currentVisualizationType === 'Visão Geral') ? maxPanelHeight : 500; // Assuming 500 is max for others if not Visao Geral
+                    // Actually, maxPanelHeight is already correctly scoped from the outer block where it's defined based on visualization.
+                    this._calculateAndSetContentMaxHeight(maxPanelHeight); // Pass the defined maxPanelHeight for current viz type
+                }},
 
-                updateSize: function(map) {
-                    const currentZoom = map.getZoom();
-                    let scaleFactor = currentZoom / baseZoomForPanel;
-                    scaleFactor = Math.max(0.5, Math.min(scaleFactor, 2.0)); 
-
-                    let newWidth = Math.round(basePanelWidth * scaleFactor);
-                    let newHeight = Math.round(basePanelHeight * scaleFactor);
-
-                    newWidth = Math.max(minPanelWidth, Math.min(newWidth, maxPanelWidth));
-                    newHeight = Math.max(minPanelHeight, Math.min(newHeight, maxPanelHeight));
+                updateSize: function(map) {{
+                    // Use base dimensions directly, clamped by min/max
+                    let newWidth = Math.max(minPanelWidth, Math.min(basePanelWidth, maxPanelWidth));
+                    let newHeight = Math.max(minPanelHeight, Math.min(basePanelHeight, maxPanelHeight)); // This newHeight is the effective max height of the panel
                     
-                    if (this._div && this._div.style.display !== 'none') { 
+                    if (this._div && this._div.style.display !== 'none') {{
                         this._div.style.width = newWidth + 'px';
                         this._div.style.maxHeight = newHeight + 'px'; 
-                    }
-                }
-            });
+                        this._calculateAndSetContentMaxHeight(newHeight); // Pass the just-set newHeight
+                    }}
+                }}
+            }});
 
-            var customInfoControl = new L.Control.CustomInfo({ position: 'bottomright' });
+            var customInfoControl = new L.Control.CustomInfo({{ position: 'bottomright' }}); // Corrected: JS object, not f-string interpolation
             map_instance.addControl(customInfoControl);
 
-            map_instance.eachLayer(function(layer) {
-                if (layer.feature && layer.feature.properties && layer.feature.properties.html_popup) {
-                    layer.on('click', function(e) {
+            map_instance.eachLayer(function(layer) {{
+                if (layer.feature && layer.feature.properties && layer.feature.properties.html_popup) {{
+                    layer.on('click', function(e) {{
                         const newTitle = e.target.feature.properties.name || 'Detalhes';
                         customInfoControl.updateContent(e.target.feature.properties.html_popup, newTitle);
                         customInfoControl.updateSize(map_instance); 
                         L.DomEvent.stopPropagation(e);
-                    });
-                }
-            });
+                    }});
+                }}
+            }});
 
-            map_instance.on('zoomend', function() {
-                if (customInfoControl._div.style.display !== 'none') { 
+            map_instance.on('zoomend', function() {{
+                if (customInfoControl._div.style.display !== 'none') {{
                     customInfoControl.updateSize(map_instance);
-                }
-            });
+                }}
+            }});
 
-            map_instance.on('click', function(e) {
+            map_instance.on('click', function(e) {{
                 let clickedOnFeature = false;
-                map_instance.eachLayer(function(layer) {
-                    if (e.originalEvent.target === layer._path || (layer._icon && layer._icon.contains(e.originalEvent.target))) {
-                        if (layer.feature && layer.feature.properties && layer.feature.properties.html_popup) {
+                map_instance.eachLayer(function(layer) {{
+                    if (e.originalEvent.target === layer._path || (layer._icon && layer._icon.contains(e.originalEvent.target))) {{
+                        if (layer.feature && layer.feature.properties && layer.feature.properties.html_popup) {{
                             clickedOnFeature = true;
-                        }
-                    }
-                });
-                if (!clickedOnFeature && customInfoControl._div.style.display !== 'none' && !customInfoControl._div.contains(e.originalEvent.target)) {
+                        }}
+                    }}
+                }});
+                if (!clickedOnFeature && customInfoControl._div.style.display !== 'none' && !customInfoControl._div.contains(e.originalEvent.target)) {{
                     customInfoControl._div.style.display = 'none';
-                }
-            });
+                }}
+            }});
 
-        } else {
+        }} else {{
             console.error("Leaflet map instance not found for fixed panel.");
-        }
-    }
+        }}
+    }}
 
-    if (document.readyState === 'complete') {
+    if (document.readyState === 'complete') {{
         initializeFixedPanelListener();
-    } else {
+    }} else {{
         document.addEventListener('DOMContentLoaded', initializeFixedPanelListener);
-    }
+    }}
 </script>
-""" # This terminates the string
+"""
+
+fixed_panel_html_css_js = html_css_part + javascript_part
 
 m.get_root().html.add_child(folium.Element(fixed_panel_html_css_js))
 

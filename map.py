@@ -313,7 +313,7 @@ regioes_ba = {
                                      'ITAPARICA',
                                      'JAGUARIPE',
                                      'LAURO DE FREITAS',
-                                     'MADRE DE DEUS',
+                                     'MADRE DEUS',
                                      'MARAGOGIPE',
                                      'MATA DE SÃO JOÃO',
                                      'MUNIZ FERREIRA',
@@ -838,17 +838,6 @@ visualization = st.selectbox(
     ]
 )
 
-# Create a selectbox for choosing the visualization
-if tipo_mapa == 'Mapa Padrão':
-    # The visualization selectbox is now defined above, no need to redefine here.
-    # We just need to make sure the logic uses the 'visualization' variable correctly.
-    pass # No action needed here as visualization is already set globally
-# REMOVED ELSE BLOCK:
-# else:
-#     # Para o mapa de regiões, não precisamos de seleção de visualização PARA O MAPA
-#     # Mas as estatísticas ainda usarão a seleção do 'visualization' global
-#     pass # visualization remains as selected globally
-
 # Initialize selection variables to avoid NameError
 escolha_razao_cfc = 'Todos (Razão Social)'
 escolha_cnpj_cfc = 'Todos (CNPJ)'
@@ -1301,7 +1290,7 @@ def criar_popup_detalhado(municipio_nome):
         'Vistoria RENAVE de Veículo 4 Rodas 16 Lugares ou Até 3,5 Ton',
         'Vistoria RENAVE de Veículos de 2 e 3 Rodas',
         'Vistoria Veículo Carga com PBT Acima de 3,5T',
-        'Vistoria Veicular de Combinações de Veículos por Unidade',
+        'Vistoria Veículo Combinado Veículo P/Unidade',
         'Vistoria Veículo 2 ou 3 Rodas',
         'Vistoria Veículo 4 Rodas Até 16 Lugares ou Até 3,5 Ton',
         'Vistoria Veículo Passageiros com Capacidade Acima de 16 Lugares',
@@ -1476,112 +1465,10 @@ def criar_popup_detalhado(municipio_nome):
     html += "</div></div>" # Fechar div principal do popup
     return html
 
-# Function to create choropleth map based on selected data
-def create_choropleth(data_df, title):
-    # Garantir tipos corretos
-    # df_original = data_df.copy() # Original line, but df_original wasn't used later
-    # df_original['Id_Município'] = df_original['Id_Município'].astype(str)
-
-    df = data_df.copy() # This df will be filtered by credenciado and used for info_dict
-    df['Id_Município'] = df['Id_Município'].astype(str)
-
-    # Se um credenciado foi selecionado e estamos em uma visualização de quantidade
-    municipios_credenciado = get_municipios_por_credenciado_filtro()
-    
-    if municipios_credenciado:
-        # A specific credenciado (by name or derived from CNPJ) is selected.
-        # Filter the main choropleth data 'df' to these municipalities.
-        # This ensures the choropleth itself only shows data for the selected credenciado's municipalities.
-        municipios_para_filtrar_df_norm = [normaliza_nome(m) for m in municipios_credenciado]
-        if 'Município' in df.columns:
-            df = df[df['Município'].apply(normaliza_nome).isin(municipios_para_filtrar_df_norm)]
-        else:
-            # Fallback for dataframes that might be structured differently (e.g., using 'Município CFC')
-            # Attempt to find a relevant municipality column if 'Município' is not present
-            mun_col_found = False
-            for col_name in ['Município CFC', 'Município Clínica', 'Nome Município']: # Add other possibilities if needed
-                if col_name in df.columns:
-                    df = df[df[col_name].apply(normaliza_nome).isin(municipios_para_filtrar_df_norm)]
-                    mun_col_found = True
-                    break
-            if not mun_col_found:
-                st.warning(f"Não foi possível filtrar o mapa pelos municípios do credenciado selecionado. Coluna de município não encontrada. Visualização: {visualization}")
-    # 'df' is now filtered by credenciado (if any). This 'df' will be used for popups via info_dict.
-
-    # --- Create a separate DataFrame for choropleth layer values and bin calculation ---
-    df_for_bins_and_choropleth = df.copy() # Start with credenciado-filtered data
-    if 'Total' in df_for_bins_and_choropleth.columns:
-        # Filter out non-positive totals for bin calculation and choropleth coloring
-        df_for_bins_and_choropleth = df_for_bins_and_choropleth[df_for_bins_and_choropleth['Total'] > 0]
-    else:
-        st.warning(f"Coluna 'Total' não encontrada para choropleth de '{title}'.")
-        df_for_bins_and_choropleth = pd.DataFrame() # Ensure it's empty
-
-    bins = None
-    choropleth_can_be_drawn = False
-
-    if not df_for_bins_and_choropleth.empty and \
-       'Total' in df_for_bins_and_choropleth.columns and \
-       not df_for_bins_and_choropleth['Total'].dropna().empty:
-
-        min_val_float = df_for_bins_and_choropleth['Total'].min()
-        max_val_float = df_for_bins_and_choropleth['Total'].max()
-
-        if pd.notna(min_val_float) and pd.notna(max_val_float):
-            if min_val_float == max_val_float:
-                # Single unique positive value after filters.
-                # Let Folium handle with quantile; provide an int for bins.
-                # Using a list like [min_val_float, min_val_float + some_small_value] often fails ColorBrewer (needs >=3 bins).
-                bins = 5  # Tell Folium to determine 5 quantile classes.
-                choropleth_can_be_drawn = True
-            elif min_val_float < max_val_float:
-                num_desired_classes = 5 # Aim for this many classes if creating a list of bins
-                # Linspace over float for better distribution, then convert to unique sorted ints
-                raw_bin_points = np.linspace(min_val_float, max_val_float, num_desired_classes + 1)
-                calculated_bins_list = sorted(list(set([int(b) for b in raw_bin_points])))
-
-                # ColorBrewer scales (like 'YlOrRd') need a list of at least 3 bin edges, or an integer.
-                # If calculated_bins_list is used, len(calculated_bins_list) - 1 is the number of colors.
-                # So, len(calculated_bins_list) - 1 >= 3  =>  len(calculated_bins_list) >= 4.
-                if len(calculated_bins_list) >= 4:
-                    bins = calculated_bins_list
-                    choropleth_can_be_drawn = True
-                elif len(calculated_bins_list) == 2: # Only 2 unique points, not enough for a list for ColorBrewer.
-                    # Fallback to integer bins for Folium to calculate quantiles.
-                    bins = 5 # Or 4; an integer value.
-                    choropleth_can_be_drawn = True
-                else: # Only 1 unique point after int conversion, or other edge case.
-                    bins = 5 # Integer for quantiles.
-                    choropleth_can_be_drawn = True
-            # else: max_val_float < min_val_float (should not happen with .min() and .max())
-
-            if not choropleth_can_be_drawn and pd.notna(min_val_float): # If logic above failed but we have valid min/max
-                 st.info(f"Não foi possível definir faixas (bins) de forma ideal para '{title}'. Tentando fallback.")
-                 bins = 5 # Fallback to integer bins
-                 choropleth_can_be_drawn = True
-        else: # min/max are NaN
-            st.info(f"Valores 'Total' são NaN ou inválidos para '{title}' após filtros. Não é possível calcular bins.")
-    else: # df_for_bins_and_choropleth is empty or 'Total' problematic
-        st.info(f"Não há dados com 'Total' positivo para '{title}' após filtros. Camada Choropleth não será desenhada.")
-
-    # Adicionar camada base branca para o fundo do mapa (ALWAYS ADD THIS)
-    folium.GeoJson(
-        geojson_data,
-        style_function=lambda x: {
-            'fillColor': 'white',
-            'color': '#666',
-            'weight': 1,
-            'fillOpacity': 1
-        }
-    ).add_to(m)
-
-    # Preparar dicionário de dados para acesso rápido (uses 'df' which is credenciado-filtered, not Total>0 filtered)
-    info_dict = df.set_index('Id_Município').to_dict(orient='index')
-
-    # Função para criar conteúdo detalhado do popup com base no tipo de visualização
-    def get_popup_html(feature):
+def get_popup_html(feature, df):
         mun_id = str(feature['properties']['id'])
         municipio_nome = feature['properties']['name']
+        info_dict = df.set_index('Id_Município').to_dict(orient='index')
         info = info_dict.get(mun_id)
         
         # Special handling for Visão Geral
@@ -1878,6 +1765,110 @@ def create_choropleth(data_df, title):
         html += "</div></div>"
         return html
 
+# Function to create choropleth map based on selected data
+def create_choropleth(data_df, title):
+    # Garantir tipos corretos
+    # df_original = data_df.copy() # Original line, but df_original wasn't used later
+    # df_original['Id_Município'] = df_original['Id_Município'].astype(str)
+
+    df = data_df.copy() # This df will be filtered by credenciado and used for info_dict
+    df['Id_Município'] = df['Id_Município'].astype(str)
+
+    # Se um credenciado foi selecionado e estamos em uma visualização de quantidade
+    municipios_credenciado = get_municipios_por_credenciado_filtro()
+    
+    if municipios_credenciado:
+        # A specific credenciado (by name or derived from CNPJ) is selected.
+        # Filter the main choropleth data 'df' to these municipalities.
+        # This ensures the choropleth itself only shows data for the selected credenciado's municipalities.
+        municipios_para_filtrar_df_norm = [normaliza_nome(m) for m in municipios_credenciado]
+        if 'Município' in df.columns:
+            df = df[df['Município'].apply(normaliza_nome).isin(municipios_para_filtrar_df_norm)]
+        else:
+            # Fallback for dataframes that might be structured differently (e.g., using 'Município CFC')
+            # Attempt to find a relevant municipality column if 'Município' is not present
+            mun_col_found = False
+            for col_name in ['Município CFC', 'Município Clínica', 'Nome Município']: # Add other possibilities if needed
+                if col_name in df.columns:
+                    df = df[df[col_name].apply(normaliza_nome).isin(municipios_para_filtrar_df_norm)]
+                    mun_col_found = True
+                    break
+            if not mun_col_found:
+                st.warning(f"Não foi possível filtrar o mapa pelos municípios do credenciado selecionado. Coluna de município não encontrada. Visualização: {visualization}")
+    # 'df' is now filtered by credenciado (if any). This 'df' will be used for popups via info_dict.
+
+    # --- Create a separate DataFrame for choropleth layer values and bin calculation ---
+    df_for_bins_and_choropleth = df.copy() # Start with credenciado-filtered data
+    if 'Total' in df_for_bins_and_choropleth.columns:
+        # Filter out non-positive totals for bin calculation and choropleth coloring
+        df_for_bins_and_choropleth = df_for_bins_and_choropleth[df_for_bins_and_choropleth['Total'] > 0]
+    else:
+        st.warning(f"Coluna 'Total' não encontrada para choropleth de '{title}'.")
+        df_for_bins_and_choropleth = pd.DataFrame() # Ensure it's empty
+
+    bins = None
+    choropleth_can_be_drawn = False
+
+    if not df_for_bins_and_choropleth.empty and \
+       'Total' in df_for_bins_and_choropleth.columns and \
+       not df_for_bins_and_choropleth['Total'].dropna().empty:
+
+        min_val_float = df_for_bins_and_choropleth['Total'].min()
+        max_val_float = df_for_bins_and_choropleth['Total'].max()
+
+        if pd.notna(min_val_float) and pd.notna(max_val_float):
+            if min_val_float == max_val_float:
+                # Single unique positive value after filters.
+                # Let Folium handle with quantile; provide an int for bins.
+                # Using a list like [min_val_float, min_val_float + some_small_value] often fails ColorBrewer (needs >=3 bins).
+                bins = 5  # Tell Folium to determine 5 quantile classes.
+                choropleth_can_be_drawn = True
+            elif min_val_float < max_val_float:
+                num_desired_classes = 5 # Aim for this many classes if creating a list of bins
+                # Linspace over float for better distribution, then convert to unique sorted ints
+                raw_bin_points = np.linspace(min_val_float, max_val_float, num_desired_classes + 1)
+                calculated_bins_list = sorted(list(set([int(b) for b in raw_bin_points])))
+
+                # ColorBrewer scales (like 'YlOrRd') need a list of at least 3 bin edges, or an integer.
+                # If calculated_bins_list is used, len(calculated_bins_list) - 1 is the number of colors.
+                # So, len(calculated_bins_list) - 1 >= 3  =>  len(calculated_bins_list) >= 4.
+                if len(calculated_bins_list) >= 4:
+                    bins = calculated_bins_list
+                    choropleth_can_be_drawn = True
+                elif len(calculated_bins_list) == 2: # Only 2 unique points, not enough for a list for ColorBrewer.
+                    # Fallback to integer bins for Folium to calculate quantiles.
+                    bins = 5 # Or 4; an integer value.
+                    choropleth_can_be_drawn = True
+                else: # Only 1 unique point after int conversion, or other edge case.
+                    bins = 5 # Integer for quantiles.
+                    choropleth_can_be_drawn = True
+            # else: max_val_float < min_val_float (should not happen with .min() and .max())
+
+            if not choropleth_can_be_drawn and pd.notna(min_val_float): # If logic above failed but we have valid min/max
+                 st.info(f"Não foi possível definir faixas (bins) de forma ideal para '{title}'. Tentando fallback.")
+                 bins = 5 # Fallback to integer bins
+                 choropleth_can_be_drawn = True
+        else: # min/max are NaN
+            st.info(f"Valores 'Total' são NaN ou inválidos para '{title}' após filtros. Não é possível calcular bins.")
+    else: # df_for_bins_and_choropleth is empty or 'Total' problematic
+        st.info(f"Não há dados com 'Total' positivo para '{title}' após filtros. Camada Choropleth não será desenhada.")
+
+    # Adicionar camada base branca para o fundo do mapa (ALWAYS ADD THIS)
+    folium.GeoJson(
+        geojson_data,
+        style_function=lambda x: {
+            'fillColor': 'white',
+            'color': '#666',
+            'weight': 1,
+            'fillOpacity': 1
+        }
+    ).add_to(m)
+
+    # Preparar dicionário de dados para acesso rápido (uses 'df' which is credenciado-filtered, not Total>0 filtered)
+    info_dict = df.set_index('Id_Município').to_dict(orient='index')
+
+    # Função para criar conteúdo detalhado do popup com base no tipo de visuali
+
     # Choropleth com bins definidos e cor visível (para legenda e coloração)
     # This is now conditional and uses the correct dataframe and robust bins
     if visualization == 'Visão Geral':
@@ -1924,7 +1915,7 @@ def create_choropleth(data_df, title):
         if info:
             feature['properties']['valor'] = info['Total']
             # Pré-renderizar o HTML do popup e armazenar como propriedade
-            feature['properties']['html_popup'] = get_popup_html(feature)
+            feature['properties']['html_popup'] = get_popup_html(feature, df)
         else:
             feature['properties']['valor'] = 'Sem dados'
             feature['properties']['html_popup'] = f"""<div style='min-width:300px'>
@@ -2265,6 +2256,9 @@ if tipo_mapa == 'Mapa de Regiões':
         
         tooltip_html += "</div>" # Close the div
         feature['properties']['tooltip_html'] = tooltip_html
+        
+        # Add html_popup for the fixed panel click functionality
+        feature['properties']['html_popup'] = get_popup_html(feature, vis_df)
 
     # --- Create GeoJSON layer with regions and custom tooltip ---
     folium.GeoJson(
@@ -2291,7 +2285,7 @@ if tipo_mapa == 'Mapa de Regiões':
 
     # Adicionar legenda
     legend_html = '''
-    <div style="position: fixed; bottom: 50px; right: 50px; z-index: 1000; background-color: white; 
+    <div style="position: fixed; top: 10px; right: 10px; z-index: 1000; background-color: white; 
                 padding: 10px; border: 2px solid grey; border-radius: 5px;">
         <p><strong>Regiões da Bahia</strong></p>
     '''
@@ -2753,28 +2747,205 @@ m.get_root().html.add_child(folium.Element(fixed_panel_html_css_js))
 map_html = m._repr_html_()
 components.html(map_html, width=iframe_width, height=iframe_height, scrolling=False)
 
+# Helper for formatting stat values (moved here to be globally available before use)
+def format_stat_value(value, is_float=False, is_mean=False):
+    if isinstance(value, str) and value == "N/A":
+        return "N/A"
+    if pd.isna(value):
+        return "N/A"
+    try:
+        numeric_value = float(value)
+        if is_mean: # Specifically for means, show more precision if it's small
+                if 0 < abs(numeric_value) < 1:
+                    return f"{numeric_value:,.4f}" # More decimal places for small means
+                else:
+                    return f"{numeric_value:,.2f}"
+        return f"{numeric_value:,.2f}" if is_float else f"{numeric_value:,.0f}"
+    except (ValueError, TypeError):
+        return str(value)
+
 # Show regional statistics AFTER the map if the region map is selected
 if tipo_mapa == 'Mapa de Regiões':
-    # Adicionar estatísticas das regiões
     st.subheader('Estatísticas por Região')
 
-    # Calcular estatísticas por região
-    stats_regioes = frota_grouped.groupby('Regiao').agg({
-        'Total': ['sum', 'mean', 'count']
-    }).round(2)
-    stats_regioes.columns = ['Total de Veículos', 'Média por Município', 'Número de Municípios']
-    stats_regioes = stats_regioes.reset_index()
+    if visualization == 'Visão Geral':
+        # For Visão Geral, show a summary of all services per region
+        all_regions = sorted(frota_grouped['Regiao'].unique()) # Get all unique region names
+        cols_geral = st.columns(3) # Setup columns for display
+        
+        for i, regiao_nome in enumerate(all_regions):
+            if regiao_nome == 'Não classificado': continue # Skip unclassified
 
-    # Exibir estatísticas em colunas
-    cols = st.columns(3)
-    for i, regiao in enumerate(stats_regioes['Regiao']):
-        col_idx = i % 3
-        with cols[col_idx]:
-            st.markdown(f"**{regiao}**")
-            st.write(f"Total de Veículos: {stats_regioes.loc[i, 'Total de Veículos']:,.0f}")
-            st.write(f"Média por Município: {stats_regioes.loc[i, 'Média por Município']:,.0f}")
-            st.write(f"Número de Municípios: {stats_regioes.loc[i, 'Número de Municípios']:,.0f}")
-            st.write("---")
+            col_idx = i % 3
+            with cols_geral[col_idx]:
+                st.markdown(f"**{regiao_nome}**")
+                
+                # Helper to get regional sum for a df
+                def get_regional_sum(df, mun_col_name, target_region_name, value_col='Total'):
+                    if df is None or df.empty or mun_col_name not in df.columns or value_col not in df.columns:
+                        return 0
+                    regional_df = df.copy()
+                    regional_df['Regiao_Calc'] = regional_df[mun_col_name].apply(
+                        lambda x: municipio_para_regiao.get(normaliza_nome(str(x)),
+                                       municipio_para_regiao.get(str(x).upper(), 'Não classificado'))
+                    )
+                    # Fix Dias d'Ávila for this specific calculation if needed
+                    dias_avila_mask_regional_sum = regional_df[mun_col_name].apply(lambda x: 'DIAS' in str(x).upper() and ('AVILA' in str(x).upper() or 'ÁVILA' in str(x).upper()))
+                    if dias_avila_mask_regional_sum.any():
+                       regional_df.loc[dias_avila_mask_regional_sum, 'Regiao_Calc'] = 'Regiâo Metropolitana de Salvador'
+
+                    filtered_sum = regional_df[regional_df['Regiao_Calc'] == target_region_name][value_col].sum()
+                    return filtered_sum
+
+                # Population
+                pop_mun_col = 'Município_POP' if populacao_df is not None and 'Município_POP' in populacao_df.columns else 'Município' # Adjust based on actual column
+                pop_total = get_regional_sum(populacao_df, pop_mun_col, regiao_nome)
+                st.write(f"População Total: {format_stat_value(pop_total)}")
+
+                # Frota
+                frota_total = get_regional_sum(frota_grouped, 'Município', regiao_nome)
+                st.write(f"Frota Total de Veículos: {format_stat_value(frota_total)}")
+
+                # CFCs (Serviços)
+                cfc_serv_total = get_regional_sum(cfc_grouped, 'Município', regiao_nome)
+                st.write(f"Serviços CFCs: {format_stat_value(cfc_serv_total)}")
+                # CFCs (Credenciados)
+                cfc_cred_total = get_regional_sum(cfc_credenciados, 'Município', regiao_nome)
+                st.write(f"CFCs Credenciados: {format_stat_value(cfc_cred_total)}")
+
+                # Clínicas (Serviços)
+                clin_serv_total = get_regional_sum(clinicas_grouped, 'Município', regiao_nome)
+                st.write(f"Exames Clínicas: {format_stat_value(clin_serv_total)}")
+                # Clínicas (Credenciadas)
+                clin_cred_total = get_regional_sum(clinicas_credenciadas, 'Município', regiao_nome)
+                st.write(f"Clínicas Credenciadas: {format_stat_value(clin_cred_total)}")
+
+                # EPIVs (Serviços)
+                epiv_serv_total = get_regional_sum(epiv_grouped, 'Município', regiao_nome)
+                st.write(f"Serviços EPIVs: {format_stat_value(epiv_serv_total)}")
+                # EPIVs (Credenciados)
+                epiv_cred_total = get_regional_sum(epiv_credenciados, 'Município', regiao_nome)
+                st.write(f"EPIVs Credenciados: {format_stat_value(epiv_cred_total)}")
+
+                # ECVs (Serviços)
+                ecv_serv_total = get_regional_sum(ecv_grouped, 'Município', regiao_nome)
+                st.write(f"Vistorias ECVs: {format_stat_value(ecv_serv_total)}")
+                # ECVs (Credenciados)
+                ecv_cred_total = get_regional_sum(ecv_credenciados, 'Município', regiao_nome)
+                st.write(f"ECVs Credenciados: {format_stat_value(ecv_cred_total)}")
+                
+                # Vistorias DETRAN (Serviços)
+                vist_detran_serv_total = get_regional_sum(vistoria_grouped, 'Município', regiao_nome)
+                st.write(f"Vistorias DETRAN (Serviços): {format_stat_value(vist_detran_serv_total)}")
+                # Vistorias DETRAN (Credenciados) - Assuming 'vistoria_credenciados' df
+                vist_detran_cred_total = get_regional_sum(vistoria_credenciados, 'Município', regiao_nome)
+                st.write(f"Vistorias DETRAN Credenciadas: {format_stat_value(vist_detran_cred_total)}")
+
+                # Pátios (Serviços)
+                patio_serv_total = get_regional_sum(patio_grouped, 'Município', regiao_nome)
+                st.write(f"Veículos Removidos (Pátios): {format_stat_value(patio_serv_total)}")
+                # Pátios (Credenciados)
+                patio_cred_total = get_regional_sum(patio_credenciados, 'Município', regiao_nome)
+                st.write(f"Pátios Credenciados: {format_stat_value(patio_cred_total)}")
+                
+                st.write("---")
+
+    else: # Existing logic for specific visualizations
+        current_data_df, current_label_prefix = vis_mapping.get(visualization, (frota_grouped, 'Veículos'))
+        temp_df_for_stats = current_data_df.copy()
+
+        mun_col = 'Município' 
+        if temp_df_for_stats is populacao_df: mun_col = 'Município_POP'
+        elif temp_df_for_stats is cfc_grouped: mun_col = 'Município CFC'
+        elif temp_df_for_stats is clinicas_grouped: mun_col = 'Município Clínica'
+        
+        if mun_col not in temp_df_for_stats.columns:
+            # This case should be rare if vis_mapping is correct
+            # Fallback to frota if the expected municipality column is missing.
+            temp_df_for_stats = frota_grouped.copy()
+            mun_col = 'Município'
+            current_label_prefix = 'Veículos (Fallback)' # Indicate fallback in label
+
+        if not temp_df_for_stats.empty and mun_col in temp_df_for_stats.columns:
+            temp_df_for_stats['Regiao'] = temp_df_for_stats[mun_col].apply(
+                lambda x: municipio_para_regiao.get(normaliza_nome(str(x)), # Ensure x is string for normaliza_nome
+                       municipio_para_regiao.get(str(x).upper(), 'Não classificado'))
+            )
+            # Ensure Dias d'Ávila is correctly assigned
+            dias_avila_mask_stats = temp_df_for_stats[mun_col].apply(lambda x: 'DIAS' in str(x).upper() and ('AVILA' in str(x).upper() or 'ÁVILA' in str(x).upper()))
+            if dias_avila_mask_stats.any():
+                temp_df_for_stats.loc[dias_avila_mask_stats, 'Regiao'] = 'Regiâo Metropolitana de Salvador'
+            
+            temp_df_for_stats = temp_df_for_stats[temp_df_for_stats['Regiao'] != 'Não classificado']
+        else: # temp_df_for_stats is empty or mun_col is not found
+            temp_df_for_stats = pd.DataFrame(columns=['Regiao', 'Total']) # Empty df with needed columns
+
+        stats_regioes_display = pd.DataFrame()
+
+        if 'Total' in temp_df_for_stats.columns and not temp_df_for_stats.empty:
+            stats_regioes_dynamic = temp_df_for_stats.groupby('Regiao').agg(
+                TotalValor=('Total', 'sum'),
+                MediaValor=('Total', 'mean'),
+                NumMunicipiosComServico=('Total', 'count') 
+            ).reset_index()
+
+            stats_regioes_dynamic = stats_regioes_dynamic.rename(columns={
+                'TotalValor': f'Total {current_label_prefix}',
+                'MediaValor': f'Média {current_label_prefix} (nos munic. com dados)',
+                'NumMunicipiosComServico': 'Municípios com Dados'
+            })
+            
+            total_municipios_por_regiao = frota_grouped.groupby('Regiao')['Município'].nunique().reset_index(name='Total Municípios na Região')
+            
+            if not stats_regioes_dynamic.empty:
+                stats_regioes_display = pd.merge(stats_regioes_dynamic, total_municipios_por_regiao, on='Regiao', how='right')
+                # Fill NaNs that might result from right merge if a region has no dynamic data
+                stats_regioes_display[f'Total {current_label_prefix}'] = stats_regioes_display[f'Total {current_label_prefix}'].fillna(0)
+                stats_regioes_display[f'Média {current_label_prefix} (nos munic. com dados)'] = stats_regioes_display[f'Média {current_label_prefix} (nos munic. com dados)'].fillna(0)
+                stats_regioes_display['Municípios com Dados'] = stats_regioes_display['Municípios com Dados'].fillna(0)
+            else:
+                stats_regioes_display = total_municipios_por_regiao.copy()
+                stats_regioes_display[f'Total {current_label_prefix}'] = 0
+                stats_regioes_display[f'Média {current_label_prefix} (nos munic. com dados)'] = 0
+                stats_regioes_display['Municípios com Dados'] = 0
+                
+        else: # 'Total' column not in temp_df_for_stats or it's empty after filtering
+            total_municipios_por_regiao = frota_grouped.groupby('Regiao')['Município'].nunique().reset_index(name='Total Municípios na Região')
+            stats_regioes_display = total_municipios_por_regiao.copy()
+            stats_regioes_display[f'Total {current_label_prefix}'] = "N/A"
+            stats_regioes_display[f'Média {current_label_prefix} (nos munic. com dados)'] = "N/A"
+            stats_regioes_display['Municípios com Dados'] = "N/A"
+
+        if not stats_regioes_display.empty:
+            cols = st.columns(3)
+            # Ensure 'Regiao' column exists for iteration
+            if 'Regiao' not in stats_regioes_display.columns:
+                st.warning("Coluna 'Regiao' não encontrada para exibir estatísticas regionais.")
+            else:
+                sorted_regions = sorted(stats_regioes_display['Regiao'].unique())
+                for i, regiao_nome in enumerate(sorted_regions):
+                    region_data = stats_regioes_display[stats_regioes_display['Regiao'] == regiao_nome].iloc[0]
+                    col_idx = i % 3
+                    with cols[col_idx]:
+                        st.markdown(f"**{regiao_nome}**")
+                        
+                        total_val_col_name = f'Total {current_label_prefix}'
+                        media_val_col_name = f'Média {current_label_prefix} (nos munic. com dados)'
+                        
+                        total_val_str = format_stat_value(region_data.get(total_val_col_name, "N/A"))
+                        st.write(f"Total {current_label_prefix}: {total_val_str}")
+                        
+                        media_val_str = format_stat_value(region_data.get(media_val_col_name, "N/A"), is_float=True, is_mean=True)
+                        st.write(f"Média {current_label_prefix} (nos munic. com dados): {media_val_str}")
+                        
+                        mun_com_dados_str = format_stat_value(region_data.get('Municípios com Dados', "N/A"))
+                        st.write(f"Municípios com Dados: {mun_com_dados_str}")
+
+                        total_mun_regiao_str = format_stat_value(region_data.get('Total Municípios na Região', "N/A"))
+                        st.write(f"Total Municípios na Região: {total_mun_regiao_str}")
+                        st.write("---")
+        else:
+            st.info(f"Não foi possível gerar estatísticas regionais para '{visualization}'.")
 
 st.markdown(
     '''
